@@ -7,7 +7,8 @@ import {
   PrimaryKey,
   AutoIncrement,
   BelongsTo,
-  ForeignKey
+  ForeignKey,
+  DataType
 } from "sequelize-typescript";
 import User from "./User";
 import Chat from "./Chat";
@@ -35,6 +36,9 @@ class ChatMessage extends Model<ChatMessage> {
 
   @Column
   mediaName: string;
+
+  @Column(DataType.JSON)
+  files: any[];
 
   @CreatedAt
   createdAt: Date;

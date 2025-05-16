@@ -8,17 +8,20 @@ export interface ChatMessageData {
   senderId: number;
   chatId: number;
   message: string;
+  files?: any[];
 }
 
 export default async function CreateMessageService({
   senderId,
   chatId,
-  message
+  message,
+  files = []
 }: ChatMessageData) {
   const newMessage = await ChatMessage.create({
     senderId,
     chatId,
-    message
+    message,
+    files
   });
 
   await newMessage.reload({
@@ -33,8 +36,9 @@ export default async function CreateMessageService({
   });
 
   const sender = await User.findByPk(senderId);
+  const messagePreview = message || (files.length > 0 ? "[Arquivo anexado]" : "");
 
-  await newMessage.chat.update({ lastMessage: `${sender.name}: ${message}` });
+  await newMessage.chat.update({ lastMessage: `${sender.name}: ${messagePreview}` });
 
   const chatUsers = await ChatUser.findAll({
     where: { chatId }

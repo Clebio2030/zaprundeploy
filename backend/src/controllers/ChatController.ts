@@ -13,6 +13,11 @@ import Chat from "../models/Chat";
 import CreateMessageService from "../services/ChatService/CreateMessageService";
 import User from "../models/User";
 import ChatUser from "../models/ChatUser";
+import fs from "fs";
+import path from "path";
+import { promisify } from "util";
+import AppError from "../errors/AppError";
+import { getAudioDurationInSeconds } from "get-audio-duration";
 
 type IndexQuery = {
   pageNumber: string;
@@ -109,6 +114,8 @@ export const remove = async (
   const { id } = req.params;
   const { companyId } = req.user;
 
+  try {
+    // O DeleteService agora cuida da exclusão de arquivos associados antes de remover o chat
   await DeleteService(id);
 
   const io = getIO();
@@ -118,7 +125,18 @@ export const remove = async (
       id
     });
 
-  return res.status(200).json({ message: "Chat deleted" });
+    return res.status(200).json({ 
+      message: "Chat e arquivos associados excluídos com sucesso" 
+    });
+  } catch (error) {
+    if (error instanceof AppError) {
+      return res.status(error.statusCode).json({ error: error.message });
+    }
+    return res.status(500).json({ 
+      error: "Erro ao excluir chat", 
+      details: error.message 
+    });
+  }
 };
 
 export const saveMessage = async (
@@ -160,6 +178,152 @@ export const saveMessage = async (
     });
 
   return res.json(newMessage);
+};
+
+export const uploadFiles = async (
+  req: Request,
+  res: Response
+): Promise<Response> => {
+  console.log("[DEBUG] Rota de upload acessada: /chats/:id/messages/upload");
+  console.log("[DEBUG] Parâmetros: ", req.params);
+  console.log("[DEBUG] Query: ", req.query);
+  console.log("[DEBUG] Body: ", req.body);
+  console.log("[DEBUG] Files: ", req.files ? "Tem arquivos" : "Sem arquivos");
+  
+  const { companyId } = req.user;
+  const { message } = req.body;
+  const { id } = req.params;
+  const senderId = +req.user.id;
+  const chatId = +id;
+  
+  console.log("[DEBUG] Rota de upload acessada:", { chatId, senderId, companyId });
+  console.log("[DEBUG] Body da requisição:", req.body);
+  
+  // Verificar se existem arquivos na requisição
+  if (!req.files || !Array.isArray(req.files) || req.files.length === 0) {
+    console.log("[ERROR] Nenhum arquivo recebido na requisição");
+    return res.status(400).json({ error: "Nenhum arquivo recebido" });
+  }
+  
+  const files = req.files as Express.Multer.File[];
+  console.log("[DEBUG] Arquivos recebidos:", files.map(f => ({ name: f.originalname, size: f.size, type: f.mimetype })));
+
+  try {
+    // Processar os arquivos enviados
+    const fileData = await Promise.all(
+      files.map(async file => {
+        // Gerar caminho para arquivos do chat
+        const chatFolder = path.join("public", `company${companyId}`, "chats");
+        const oldPath = file.path;
+        
+        console.log("[DEBUG] Processando arquivo:", { name: file.originalname, oldPath });
+        
+        // Criar pasta se não existir
+        if (!fs.existsSync(chatFolder)) {
+          console.log("[DEBUG] Criando pasta:", chatFolder);
+          fs.mkdirSync(chatFolder, { recursive: true });
+        }
+        
+        // Criar nome de arquivo único
+        const timestamp = new Date().getTime();
+        const fileName = `${timestamp}-${file.originalname.replace(/[^a-zA-Z0-9.]/g, "_")}`;
+        const newPath = path.join(chatFolder, fileName);
+        
+        console.log("[DEBUG] Movendo arquivo:", { oldPath, newPath });
+        
+        try {
+          // Mover arquivo 
+          await promisify(fs.rename)(oldPath, newPath);
+          console.log("[DEBUG] Arquivo movido com sucesso");
+        } catch (moveError) {
+          console.error("[ERROR] Erro ao mover arquivo:", moveError);
+          // Tentar copiar em vez de mover como fallback
+          try {
+            await promisify(fs.copyFile)(oldPath, newPath);
+            await promisify(fs.unlink)(oldPath);
+            console.log("[DEBUG] Arquivo copiado como fallback");
+          } catch (copyError) {
+            console.error("[ERROR] Erro ao copiar arquivo:", copyError);
+            throw copyError;
+          }
+        }
+        
+        // Determinar o tipo MIME e processar metadados
+        const fileExtension = file.originalname.split('.').pop()?.toLowerCase();
+        const isAudio = ['mp3', 'wav', 'ogg', 'opus'].includes(fileExtension);
+        const isImage = ['jpg', 'jpeg', 'png', 'gif'].includes(fileExtension);
+        
+        // Objeto para armazenar metadados do arquivo
+        const metadata: any = {};
+        
+        // Extrair metadados específicos para áudio
+        if (isAudio) {
+          try {
+            console.log("[DEBUG] Extraindo duração do áudio:", newPath);
+            const duration = await getAudioDurationInSeconds(newPath);
+            metadata.duration = duration;
+            console.log("[DEBUG] Duração do áudio:", duration);
+          } catch (audioError) {
+            console.error("[ERROR] Erro ao extrair duração do áudio:", audioError);
+            // Continuar mesmo se não conseguir extrair a duração
+          }
+        }
+        
+        // Gerar URL pública para o arquivo
+        const fileURL = path.join("company" + companyId, "chats", fileName).replace(/\\/g, "/");
+        
+        return {
+          name: file.originalname,
+          size: file.size,
+          type: file.mimetype,
+          url: fileURL,
+          metadata
+        };
+      })
+    );
+    
+    console.log("[DEBUG] Arquivos processados:", fileData);
+    
+    // Criar a mensagem com os arquivos processados
+    const newMessage = await CreateMessageService({
+      chatId,
+      senderId,
+      message: message || "",
+      files: fileData
+    });
+    
+    // Buscar o chat para incluir nas notificações
+    const chat = await Chat.findByPk(chatId, {
+      include: [
+        { model: User, as: "owner" },
+        { model: ChatUser, as: "users" }
+      ]
+    });
+    
+    // Emitir eventos de socket para notificar os clientes
+    const io = getIO();
+    io.of(String(companyId))
+      .emit(`company-${companyId}-chat-${chatId}`, {
+        action: "new-message",
+        newMessage,
+        chat
+      });
+    
+    io.of(String(companyId))
+      .emit(`company-${companyId}-chat`, {
+        action: "new-message",
+        newMessage,
+        chat
+      });
+    
+    return res.status(200).json(newMessage);
+  } catch (error) {
+    console.error("[ERROR] Erro ao processar upload:", error);
+    return res.status(500).json({ 
+      error: "Erro ao processar o upload de arquivos", 
+      details: error.message 
+    });
+  }
 };
 
 export const checkAsRead = async (

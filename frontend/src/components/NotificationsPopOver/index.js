@@ -12,7 +12,7 @@ import IconButton from "@material-ui/core/IconButton";
 import List from "@material-ui/core/List";
 import ListItem from "@material-ui/core/ListItem";
 import ListItemText from "@material-ui/core/ListItemText";
-import { makeStyles } from "@material-ui/core/styles";
+import { makeStyles, withStyles } from "@material-ui/core/styles";
 import Badge from "@material-ui/core/Badge";
 import ChatIcon from "@material-ui/icons/Chat";
 
@@ -46,7 +46,55 @@ const useStyles = makeStyles(theme => ({
 	noShadow: {
 		boxShadow: "none !important",
 	},
+	notificationBadge: {
+		backgroundColor: '#FFCC00', // Amarelo vivo no lugar do vermelho
+		color: '#000000', // Texto preto para melhor contraste com amarelo
+		fontWeight: 'bold',
+		padding: '0 4px',
+		boxShadow: '0px 0px 5px rgba(255, 204, 0, 0.7)', // Brilho amarelo ao redor
+		animation: '$pulse 1.5s infinite',
+	},
+	'@keyframes pulse': {
+		'0%': {
+			transform: 'scale(1)',
+			opacity: 1,
+		},
+		'50%': {
+			transform: 'scale(1.15)',
+			opacity: 0.9,
+		},
+		'100%': {
+			transform: 'scale(1)',
+			opacity: 1,
+		},
+	},
 }));
+
+// Criar um Badge personalizado com a cor amarela
+const YellowBadge = withStyles(() => ({
+	badge: {
+		backgroundColor: '#FFCC00',
+		color: '#000000',
+		fontWeight: 'bold',
+		padding: '0 4px',
+		boxShadow: '0px 0px 5px rgba(255, 204, 0, 0.7)', 
+		animation: '$pulse 1.5s infinite',
+	},
+	'@keyframes pulse': {
+		'0%': {
+			transform: 'scale(1)',
+			opacity: 1,
+		},
+		'50%': {
+			transform: 'scale(1.15)',
+			opacity: 0.9,
+		},
+		'100%': {
+			transform: 'scale(1)',
+			opacity: 1,
+		},
+	},
+}))(Badge);
 
 const NotificationsPopOver = (volume) => {
 	const classes = useStyles();
@@ -309,11 +357,31 @@ const NotificationsPopOver = (volume) => {
 				ref={anchorEl}
 				aria-label="Open Notifications"
 				color="inherit"
-				style={{ color: "white" }}
+				style={{ 
+					color: notifications.length > 0 ? "#FFCC00" : "white",
+					backgroundColor: notifications.length > 0 ? "rgba(255, 204, 0, 0.15)" : "transparent",
+					boxShadow: notifications.length > 0 ? "0 0 8px rgba(255, 204, 0, 0.6)" : "none",
+					transform: notifications.length > 0 ? "scale(1.05)" : "scale(1)",
+					transition: "all 0.3s ease",
+				}}
+				className="MuiButtonBase-root MuiIconButton-root MuiIconButton-colorInherit"
 			>
-				<Badge overlap="rectangular" badgeContent={notifications.length} color="secondary">
+				{notifications.length > 0 ? (
+					<YellowBadge
+						overlap="rectangular" 
+						badgeContent={notifications.length}
+					>
+						<ChatIcon />
+					</YellowBadge>
+				) : (
+					<Badge 
+						overlap="rectangular" 
+						badgeContent={0} 
+						color="secondary"
+					>
 					<ChatIcon />
 				</Badge>
+				)}
 			</IconButton>
 			<Popover
 				disableScrollLock
