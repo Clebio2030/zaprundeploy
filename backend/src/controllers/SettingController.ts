@@ -9,6 +9,8 @@ import ListSettingsServiceOne from "../services/SettingServices/ListSettingsServ
 import GetSettingService from "../services/SettingServices/GetSettingService";
 import UpdateOneSettingService from "../services/SettingServices/UpdateOneSettingService";
 import GetPublicSettingService from "../services/SettingServices/GetPublicSettingService";
+import GetWelcomeMediaService from "../services/SettingServices/GetWelcomeMediaService";
+import UpdateWelcomeMediaService from "../services/SettingServices/UpdateWelcomeMediaService";
 
 type LogoRequest = {
   mode: string;
@@ -154,3 +156,42 @@ export const storePrivateFile = async (req: Request, res: Response): Promise<Res
   
   return res.status(200).json(setting.value);
 }
+
+export const getWelcomeMedia = async (req: Request, res: Response): Promise<Response> => {
+  const { companyId } = req.user;
+
+  const mediaConfig = await GetWelcomeMediaService({ companyId });
+
+  return res.status(200).json(mediaConfig);
+};
+
+export const updateWelcomeMedia = async (req: Request, res: Response): Promise<Response> => {
+  const { companyId } = req.user;
+  const mediaData = req.body;
+
+  if (req.user.profile !== "admin") {
+    throw new AppError("ERR_NO_PERMISSION", 403);
+  }
+
+  try {
+    const mediaConfig = await UpdateWelcomeMediaService({
+      mediaData,
+      companyId
+    });
+
+    const io = getIO();
+    io.of(String(companyId))
+      .emit(`company-${companyId}-settings`, {
+        action: "update",
+        setting: {
+          key: "welcomeMediaConfig",
+          value: JSON.stringify(mediaConfig)
+        }
+      });
+
+    return res.status(200).json(mediaConfig);
+  } catch (error) {
+    console.error("Erro ao atualizar configurações de mídia:", error);
+    throw new AppError("Erro ao atualizar configurações de mídia", 500);
+  }
+};

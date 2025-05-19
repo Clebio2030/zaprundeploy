@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from "react";
-import { makeStyles } from "@material-ui/core/styles";
-import { IconButton, Typography, LinearProgress, Box } from "@material-ui/core";
+import { makeStyles, useTheme } from "@material-ui/core/styles";
+import { IconButton, Typography, LinearProgress, Box, Snackbar } from "@material-ui/core";
 import PlayArrowIcon from "@material-ui/icons/PlayArrow";
 import PauseIcon from "@material-ui/icons/Pause";
-import AudiotrackIcon from "@material-ui/icons/Audiotrack";
+import RefreshIcon from "@material-ui/icons/Refresh";
+import { Howl, Howler } from 'howler';
 
 const useStyles = makeStyles((theme) => ({
   audioContainer: {
@@ -55,11 +56,19 @@ const useStyles = makeStyles((theme) => ({
     color: theme.palette.text.secondary,
     fontWeight: 500,
   },
-  audioIcon: {
-    fontSize: 20,
-    color: theme.palette.primary.main,
-    marginRight: theme.spacing(1),
-  }
+  retryButton: {
+    position: "absolute",
+    right: 8,
+    top: 8,
+    backgroundColor: theme.palette.error.main,
+    color: "#fff",
+    padding: 2,
+    minWidth: "unset",
+    width: 24,
+    height: 24,
+    fontSize: 10,
+    borderRadius: "50%",
+  },
 }));
 
 const formatTime = (seconds) => {
@@ -76,9 +85,9 @@ const formatTime = (seconds) => {
 };
 
 const getFullUrl = (url) => {
-  if (!url) return "";
+  if (!url) return '';
   
-  // Se a URL já começa com http ou https, retornar como está
+  // Se já é uma URL absoluta, retornar como está
   if (url.startsWith('http://') || url.startsWith('https://')) {
     return url;
   }
@@ -92,138 +101,594 @@ const getFullUrl = (url) => {
   // Verificar se já contém o prefixo public/ antes de adicioná-lo
   const urlWithPublic = cleanUrl.startsWith('public/') ? cleanUrl : `public/${cleanUrl}`;
   
-  // Construir a URL completa
-  let fullUrl = `${BACKEND_URL}/${urlWithPublic}`;
+  // Completar a URL com o domínio
+  const fullUrl = `${BACKEND_URL}/${urlWithPublic}`;
   
-  // Para iOS, adicionar parâmetro de timestamp para evitar cache
-  if (/iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream) {
-    fullUrl = `${fullUrl}?t=${new Date().getTime()}`;
-  }
-  
-  console.log('[DEBUG AUDIO URL]', { original: url, final: fullUrl });
   return fullUrl;
 };
 
-// Tenta várias estratégias para construir URLs de áudio
-const tryAlternativeUrls = (url) => {
-  if (!url) return [];
+// Função adicional para resolver problemas de CORS
+const addCorsProxyIfNeeded = (url) => {
+  // Se já for uma URL interna ou localhost, não precisa de proxy
+  if (url.includes(window.location.hostname) || 
+      url.includes('localhost') || 
+      url.includes('127.0.0.1')) {
+    return url;
+  }
   
-  // URL original
-  const originalUrl = getFullUrl(url);
+  // Adicionar timestamp para evitar cache
+  const timestamp = new Date().getTime();
+  const separator = url.includes('?') ? '&' : '?';
   
-  // URL alternativas para tentar em caso de falha
-  const alternatives = [originalUrl];
-  
-  // Se é um dispositivo iOS, tentar outras variações de URL
-  if (isIOS) {
-    // Variar os caminhos public/ e arquivo/ que são comuns em uploads
-    if (url.includes('public/')) {
-      const withoutPublic = url.replace('public/', '');
-      alternatives.push(getFullUrl(withoutPublic));
-    } else {
-      alternatives.push(getFullUrl(`arquivo/${url}`));
+  // Verificar se a URL é do domínio api2.zaprun.site
+  if (url.includes('api2.zaprun.site')) {
+    // Adicionar parâmetros para CORS e cache-busting
+    const corsUrl = `${url}${separator}nocache=${timestamp}&cors=true`;
+    
+    // Verificar se contém indicações de áudio iOS
+    if (url.includes('_ios.') || isIOS()) {
+      return `${corsUrl}&format=ios&device=safari`;
     }
     
-    // Para URLs absolutas, adicionar variações
-    if (url.startsWith('http')) {
-      // Tentar versão com e sem cache busting
-      alternatives.push(`${url}?t=${new Date().getTime()}`);
-      // Tentar versão com protocolo alternativo (http<->https)
-      if (url.startsWith('https:')) {
-        alternatives.push(url.replace('https:', 'http:'));
-      } else if (url.startsWith('http:')) {
-        alternatives.push(url.replace('http:', 'https:'));
-      }
-    }
+    return corsUrl;
   }
   
-  // Tentar caminhos mais comuns como fallback, independente do dispositivo
-  if (!url.includes('public/') && !url.includes('arquivo/')) {
-    alternatives.push(getFullUrl(`arquivo/${url}`));
-  }
-  
-  // Tentar variações com extensões comuns caso a URL não tenha extensão
-  if (!url.match(/\.(mp3|wav|ogg|m4a|aac)$/i)) {
-    alternatives.push(getFullUrl(`${url}.mp3`));
-    alternatives.push(getFullUrl(`${url}.wav`));
-  }
-  
-  return alternatives;
+  return `${url}${separator}nocache=${timestamp}`;
 };
 
-// Detecta se é um dispositivo iOS
-const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-console.log('[DEBUG] Dispositivo iOS detectado:', isIOS);
-
-// Função para tentar reproduzir áudio em iOS
-const attemptIOSAudioPlay = async (audioElement, urls) => {
-  console.log('[DEBUG] Tentando reprodução específica para iOS');
+// Função alternativa para usar proxy CORS quando necessário
+const getProxiedUrl = (url) => {
+  if (!url) return "";
   
-  for (let i = 0; i < urls.length; i++) {
-    const url = urls[i];
-    console.log(`[DEBUG] Tentativa ${i+1}/${urls.length} com URL: ${url}`);
-    
-    // Configurar o elemento de áudio para cada tentativa
-    audioElement.src = url;
-    audioElement.load();
-    
-    // Esperar tempo suficiente para carregar o áudio antes de tentar reproduzir
-    await new Promise(resolve => setTimeout(resolve, 300));
-    
-    try {
-      // Tentar reproduzir com este URL
-      await audioElement.play();
-      console.log('[DEBUG] Reprodução bem-sucedida no iOS!');
-      return true;
-    } catch (error) {
-      console.error(`[DEBUG] Falha na tentativa ${i+1} para iOS:`, error.message);
-      
-      // Se for o último URL, falhar
-      if (i === urls.length - 1) {
-        throw error;
+  // Proxy CORS público gratuito
+  // Observação: uso limitado, apenas para testes
+  const corsProxies = [
+    `https://corsproxy.io/?${encodeURIComponent(url)}`,
+    `https://proxy.cors.sh/${url}`,
+    `https://cors-proxy.htmldriven.com/?url=${encodeURIComponent(url)}`
+  ];
+  
+  // Usar o primeiro proxy na lista
+  return corsProxies[0];
+};
+
+// Verificar se a URL é acessível
+const checkUrlAccessibility = async (url) => {
+  try {
+    // Tentar fetch com HEAD para verificar se o recurso existe
+    const response = await fetch(url, {
+      method: 'HEAD',
+      mode: 'no-cors', // Tentar contornar CORS para verificação
+      cache: 'no-cache',
+      headers: {
+        'Accept': 'audio/mp4,audio/aac,audio/x-m4a,audio/mpeg,audio/*;q=0.8,*/*;q=0.5',
+        'X-Requested-With': 'XMLHttpRequest'
       }
+    });
+    
+    // No-cors sempre retorna status 0, então não podemos confiar no status
+    // Mas se não lançar erro, provavelmente o recurso existe
+    return true;
+  } catch (error) {
+    return false;
+  }
+};
+
+// Função para analisar a URL do áudio e tentar corrigir problemas comuns
+const sanitizeAndFixAudioUrl = (url) => {
+  if (!url) return "";
+  
+  // Normalizar URL
+  let fixedUrl = url.trim();
+  
+  // Detectar e corrigir URLs incompletas
+  if (fixedUrl.startsWith('company1/') || fixedUrl.startsWith('/company1/')) {
+    // URL relativa a um company ID - muito provavelmente da API zaprun
+    fixedUrl = `https://api2.zaprun.site/public/${fixedUrl.startsWith('/') ? fixedUrl.substring(1) : fixedUrl}`;
+  } else if (fixedUrl.match(/^https?:\/\/company\d+\//)) {
+    // URL com protocolo mas sem domínio completo
+    const urlParts = fixedUrl.split('/');
+    const companyPath = urlParts.slice(2).join('/'); // Pegar todo o caminho após o protocolo e companyID
+    fixedUrl = `https://api2.zaprun.site/public/${companyPath}`;
+  }
+  
+  // Se a URL não tiver protocolo, adicionar https
+  if (!fixedUrl.startsWith('http://') && !fixedUrl.startsWith('https://')) {
+    fixedUrl = `https://${fixedUrl}`;
+  }
+  
+  // Substituir espaços por %20
+  fixedUrl = fixedUrl.replace(/\s+/g, '%20');
+  
+  // Adicionar /public/ no caminho se for URL api2.zaprun.site e não tiver
+  if (fixedUrl.includes('api2.zaprun.site') && !fixedUrl.includes('/public/')) {
+    try {
+      const urlObj = new URL(fixedUrl);
+      const pathParts = urlObj.pathname.split('/').filter(p => p);
       
-      // Pausar antes de tentar outro URL
-      try {
-        audioElement.pause();
-        // Esperar para evitar conflitos entre play e pause
-        await new Promise(resolve => setTimeout(resolve, 500));
-      } catch (e) {}
+      if (pathParts.length > 0 && pathParts[0] !== 'public') {
+        urlObj.pathname = `/public/${urlObj.pathname.startsWith('/') ? urlObj.pathname.substring(1) : urlObj.pathname}`;
+        fixedUrl = urlObj.toString();
+      }
+    } catch (error) {
+      // Continuar com a URL sem modificação
     }
   }
   
-  throw new Error('Todas as tentativas falharam');
+  // Verificar se a URL contém indicação de áudio iOS
+  if (fixedUrl.includes('_ios.')) {
+    // Garantir formato aceitável para iOS
+    if (fixedUrl.endsWith('.webm') || fixedUrl.endsWith('.ogg')) {
+      // Tentar substituir extensão por .m4a
+      fixedUrl = fixedUrl.replace(/\.(webm|ogg)$/, '.m4a');
+    }
+  }
+  
+  return fixedUrl;
+};
+
+// Função para detectar iOS
+const isIOS = () => {
+  const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+  return /iPad|iPhone|iPod/.test(userAgent) || 
+         (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+};
+
+// Função para obter a versão do iOS
+const getIOSVersion = () => {
+  if (!isIOS()) return 0;
+  
+  const match = (navigator.appVersion).match(/OS (\d+)_(\d+)_?(\d+)?/);
+  if (match) {
+    return parseFloat(`${match[1]}.${match[2]}`);
+  }
+  return 0;
+};
+
+// Desbloquear áudio no iOS - método agressivo
+const forceUnlockAudio = () => {
+  if (!isIOS()) return;
+  
+  try {
+    // 1. WebAudio API - método mais confiável
+    const AudioContext = window.AudioContext || window.webkitAudioContext;
+    const audioContext = new AudioContext();
+    
+    // Criar oscilador e conectar
+    const oscillator = audioContext.createOscillator();
+    const gainNode = audioContext.createGain();
+    gainNode.gain.value = 0.01; // Volume muito baixo, mas não zero
+    oscillator.connect(gainNode);
+    gainNode.connect(audioContext.destination);
+    
+    // Iniciar e parar rapidamente
+    oscillator.start(0);
+    oscillator.stop(0.1);
+    
+    // Forçar a retomada do contexto de áudio
+    if (audioContext.state === 'suspended') {
+      audioContext.resume();
+    }
+  } catch (e) {
+    // Ignorar erros
+  }
+};
+
+// Função para criar e gerenciar manualmente a reprodução em ambiente iOS
+const createIOSAudioPlayer = (url, {
+  onPlay, 
+  onPause, 
+  onEnd, 
+  onTimeUpdate, 
+  onLoad, 
+  onError,
+  onDebugLog
+}) => {
+  if (!url || typeof url !== 'string') {
+    if (onDebugLog) onDebugLog("ERRO: URL de áudio inválida ou vazia");
+    if (onError) onError(new Error("URL inválida"));
+    return null;
+  }
+
+  try {
+    // Limpar qualquer instância Howler anterior para economia de memória
+    Howler.unload();
+    
+    if (onDebugLog) onDebugLog("Criando player iOS para URL: " + url);
+    
+    // Flag para rastrear se o áudio foi carregado com sucesso
+    let audioLoaded = false;
+    let errorTimeout = null;
+    
+    // Criar elemento de áudio nativo
+    const audioElement = new Audio();
+    
+    // Forçar configurações de baixo nível
+    audioElement.autoplay = false;
+    audioElement.preload = 'auto';
+    audioElement.crossOrigin = 'anonymous';
+    audioElement.volume = 1.0;
+    
+    // Adicionar atributos para evitar problemas de reprodução no iOS
+    audioElement.setAttribute('playsinline', '');
+    audioElement.setAttribute('webkit-playsinline', '');
+    
+    // Eventos do elemento de áudio
+    audioElement.addEventListener('canplaythrough', () => {
+      const safeDuration = isFinite(audioElement.duration) ? audioElement.duration : 0;
+      if (onDebugLog) onDebugLog("iOS Audio: canplaythrough, duração: " + safeDuration + "s");
+      
+      // Marcar como carregado (cancela timeout de erro)
+      audioLoaded = true;
+      if (errorTimeout) {
+        clearTimeout(errorTimeout);
+        errorTimeout = null;
+      }
+      
+      if (onLoad && safeDuration > 0) onLoad(safeDuration);
+    });
+    
+    audioElement.addEventListener('loadedmetadata', () => {
+      const safeDuration = isFinite(audioElement.duration) ? audioElement.duration : 0;
+      if (onDebugLog) onDebugLog("iOS Audio: loadedmetadata, duração: " + safeDuration + "s");
+      
+      // Marcar como carregado (cancela timeout de erro)
+      audioLoaded = true;
+      if (errorTimeout) {
+        clearTimeout(errorTimeout);
+        errorTimeout = null;
+      }
+      
+      if (onLoad && safeDuration > 0) onLoad(safeDuration);
+    });
+    
+    audioElement.addEventListener('error', (e) => {
+      const errorCode = e.target.error ? e.target.error.code : 0;
+      const errorDetails = e.target.error ? 
+        `Código: ${errorCode}, Mensagem: ${e.target.error.message || ""}` : 
+        "Erro desconhecido";
+      
+      if (onDebugLog) onDebugLog("ERRO iOS Audio: " + errorDetails);
+      
+      // Exibir detalhes específicos do erro de mídia
+      let errorMessage = "Erro desconhecido";
+      switch (errorCode) {
+        case 1:
+          errorMessage = "Operação abortada";
+          break;
+        case 2:
+          errorMessage = "Erro de rede";
+          break;
+        case 3:
+          errorMessage = "Erro de decodificação";
+          break;
+        case 4:
+          errorMessage = "Formato não suportado ou URL inacessível";
+          break;
+      }
+      
+      if (onDebugLog) onDebugLog("ERRO iOS Audio detalhado: " + errorMessage);
+      
+      // Não disparar erro imediatamente, aguardar para ver se o áudio carrega
+      // Em alguns casos, o iOS reporta erro mas depois consegue carregar
+      if (!audioLoaded && !errorTimeout) {
+        errorTimeout = setTimeout(() => {
+          // Se depois de 2 segundos não tiver carregado, considerar como erro
+          if (!audioLoaded) {
+            if (onError) onError(e);
+          }
+        }, 2000);
+      }
+    });
+    
+    audioElement.addEventListener('ended', () => {
+      if (onDebugLog) onDebugLog("iOS Audio: ended");
+      if (onEnd) onEnd();
+    });
+    
+    audioElement.addEventListener('timeupdate', () => {
+      if (onTimeUpdate) onTimeUpdate(audioElement.currentTime);
+    });
+    
+    audioElement.addEventListener('playing', () => {
+      if (onDebugLog) onDebugLog("iOS Audio: playing");
+    });
+    
+    audioElement.addEventListener('waiting', () => {
+      if (onDebugLog) onDebugLog("iOS Audio: waiting");
+    });
+    
+    audioElement.addEventListener('stalled', () => {
+      if (onDebugLog) onDebugLog("iOS Audio: stalled");
+    });
+    
+    audioElement.addEventListener('suspend', () => {
+      if (onDebugLog) onDebugLog("iOS Audio: suspend");
+    });
+    
+    // Definir a URL do áudio
+    try {
+      audioElement.src = url;
+      audioElement.load();
+      if (onDebugLog) onDebugLog("iOS Audio: load chamado");
+    } catch (loadError) {
+      if (onDebugLog) onDebugLog("ERRO iOS Audio ao carregar URL: " + loadError.message);
+      if (onError) onError(loadError);
+    }
+    
+    // Funções para controlar o áudio
+    const play = () => {
+      // Tentar desbloquear o áudio antes de reproduzir
+      forceUnlockAudio();
+      
+      if (onDebugLog) onDebugLog("iOS Audio: tentando reproduzir");
+      
+      // Verificar se o elemento está em estado válido
+      if (audioElement.error) {
+        if (onDebugLog) onDebugLog("ERRO iOS Audio antes de play: " + 
+          (audioElement.error ? `Código: ${audioElement.error.code}` : "Estado inválido"));
+        if (onError) onError(audioElement.error || new Error("Estado inválido"));
+        return;
+      }
+      
+      // Atraso pequeno para garantir que o áudio seja desbloqueado
+      setTimeout(() => {
+        if (onDebugLog) onDebugLog("iOS Audio: estado antes de play: " + (audioElement.paused ? "pausado" : "tocando"));
+        
+        if (!audioElement.paused) {
+          if (onDebugLog) onDebugLog("iOS Audio: já está reproduzindo, nada a fazer");
+          if (onPlay) onPlay();
+          return;
+        }
+        
+        try {
+          const playPromise = audioElement.play();
+          
+          if (playPromise) {
+            if (onDebugLog) onDebugLog("iOS Audio: promise de play retornada");
+            
+            playPromise
+              .then(() => {
+                if (onDebugLog) onDebugLog("iOS Audio: promise de play resolvida com sucesso");
+                if (onPlay) onPlay();
+              })
+              .catch((error) => {
+                if (onDebugLog) onDebugLog("ERRO iOS Audio: falha na promise de play: " + error.message);
+                
+                // Verificar se o erro está relacionado a interação do usuário
+                if (error.name === 'NotAllowedError') {
+                  if (onDebugLog) onDebugLog("ERRO iOS Audio: reprodução não permitida sem interação do usuário");
+                }
+                
+                // Tentar estratégia alternativa para iOS
+                forceUnlockAudio();
+                if (onDebugLog) onDebugLog("iOS Audio: tentando estratégia alternativa após erro");
+                
+                // Última tentativa - reproduzir com volume zero e depois aumentar
+                audioElement.volume = 0;
+                
+                setTimeout(() => {
+                  if (onDebugLog) onDebugLog("iOS Audio: última tentativa com volume zero");
+                  try {
+                    const finalAttempt = audioElement.play();
+                    if (finalAttempt) {
+                      finalAttempt.then(() => {
+                        if (onDebugLog) onDebugLog("iOS Audio: última tentativa bem-sucedida");
+                        // Aumentar gradualmente o volume para evitar problemas
+                        const volumeInterval = setInterval(() => {
+                          if (audioElement.volume < 1.0) {
+                            audioElement.volume += 0.1;
+                          } else {
+                            clearInterval(volumeInterval);
+                          }
+                        }, 100);
+                        
+                        if (onPlay) onPlay();
+                      }).catch((finalError) => {
+                        if (onDebugLog) onDebugLog("ERRO iOS Audio: falha na última tentativa: " + finalError.message);
+                        if (onError) onError(finalError);
+                      });
+                    } else {
+                      if (onDebugLog) onDebugLog("ERRO iOS Audio: última tentativa não retornou promise");
+                    }
+                  } catch (finalCatchError) {
+                    if (onDebugLog) onDebugLog("ERRO iOS Audio: exceção na última tentativa: " + finalCatchError.message);
+                    if (onError) onError(finalCatchError);
+                  }
+                }, 500);
+              });
+          } else {
+            // Navegadores antigos que não suportam promises
+            if (onDebugLog) onDebugLog("iOS Audio: navegador antigo sem suporte a promise");
+            if (onPlay) onPlay();
+          }
+        } catch (playError) {
+          if (onDebugLog) onDebugLog("ERRO iOS Audio: exceção ao chamar play(): " + playError.message);
+          if (onError) onError(playError);
+        }
+      }, 100);
+    };
+    
+    const pause = () => {
+      if (onDebugLog) onDebugLog("iOS Audio: pause chamado");
+      audioElement.pause();
+      if (onPause) onPause();
+    };
+    
+    const stop = () => {
+      audioElement.pause();
+      audioElement.currentTime = 0;
+      if (onPause) onPause();
+    };
+    
+    const seek = (time) => {
+      audioElement.currentTime = time;
+    };
+    
+    const setVolume = (volume) => {
+      audioElement.volume = volume;
+    };
+    
+    const getCurrentTime = () => {
+      try {
+        const time = audioElement.currentTime;
+        return isFinite(time) ? time : 0;
+      } catch (e) {
+        return 0;
+      }
+    };
+    
+    const getDuration = () => {
+      try {
+        const duration = audioElement.duration;
+        return isFinite(duration) ? duration : 0;
+      } catch (e) {
+        return 0;
+      }
+    };
+    
+    const isPlaying = () => {
+      try {
+        return !audioElement.paused;
+      } catch (e) {
+        return false;
+      }
+    };
+    
+    const cleanup = () => {
+      audioElement.pause();
+      audioElement.src = '';
+      audioElement.load();
+    };
+    
+    return {
+      play,
+      pause,
+      stop,
+      seek,
+      setVolume,
+      getCurrentTime,
+      getDuration,
+      isPlaying,
+      cleanup,
+      element: audioElement // Expor o elemento para inspeção
+    };
+  } catch (e) {
+    if (onDebugLog) onDebugLog("ERRO ao criar player iOS: " + e.message);
+    if (onError) onError(e);
+    return null;
+  }
+};
+
+// Função para tentar converter áudio para formato compatível com iOS no cliente
+// Limitada mas pode ajudar em alguns casos
+const tryConvertAudioForIOS = async (audioUrl) => {
+  if (!audioUrl) return null;
+  
+  try {
+    const response = await fetch(audioUrl);
+    if (!response.ok) {
+      return null;
+    }
+    
+    const audioData = await response.arrayBuffer();
+    
+    // Verificar se temos o AudioContext disponível
+    if (!window.AudioContext && !window.webkitAudioContext) {
+      return null;
+    }
+    
+    // Criar contexto de áudio
+    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    
+    // Decodificar o áudio
+    const decodedData = await audioContext.decodeAudioData(audioData);
+    
+    // Criar buffer source
+    const source = audioContext.createBufferSource();
+    source.buffer = decodedData;
+    
+    // Conectar a um destination node
+    const destination = audioContext.createMediaStreamDestination();
+    source.connect(destination);
+    
+    // Criar um MediaRecorder para capturar a saída
+    const recorder = new MediaRecorder(destination.stream, {
+      mimeType: 'audio/mp4',
+      audioBitsPerSecond: 128000
+    });
+    
+    // Array para armazenar os chunks de dados
+    const chunks = [];
+    
+    // Event listener para dados disponíveis
+    recorder.addEventListener('dataavailable', (e) => {
+      if (e.data.size > 0) {
+        chunks.push(e.data);
+      }
+    });
+    
+    // Promise para aguardar a conclusão da gravação
+    const recordingPromise = new Promise((resolve) => {
+      recorder.addEventListener('stop', () => {
+        // Criar blob com os dados convertidos
+        const blob = new Blob(chunks, { type: 'audio/mp4' });
+        
+        // Criar URL para o blob
+        const convertedUrl = URL.createObjectURL(blob);
+        
+        // Resolver a promise com a URL convertida
+        resolve(convertedUrl);
+      });
+    });
+    
+    // Iniciar gravação e reprodução
+    recorder.start();
+    source.start(0);
+    
+    // Parar a gravação após a duração do áudio
+    setTimeout(() => {
+      recorder.stop();
+      source.stop();
+    }, decodedData.duration * 1000 + 100); // Adicionar um pequeno buffer
+    
+    // Aguardar a conclusão da gravação
+    return await recordingPromise;
+  } catch (error) {
+    return null;
+  }
 };
 
 export default function ChatAudioPlayer({ audioUrl, duration, isRight }) {
   const classes = useStyles();
+  const theme = useTheme();
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [audioDuration, setAudioDuration] = useState(duration || 0);
   const [metadataLoaded, setMetadataLoaded] = useState(false);
   const [loadingFailed, setLoadingFailed] = useState(false);
-  const [currentUrlIndex, setCurrentUrlIndex] = useState(0);
-  const audioRef = useRef(null);
+  const [showTryAgain, setShowTryAgain] = useState(false);
+  const [playerState, setPlayerState] = useState('idle'); // idle, loading, ready, playing, paused, error
+  const [playerMode, setPlayerMode] = useState('auto'); // auto, ios, howler, direct, proxy
+  const [useProxy, setUseProxy] = useState(false);
+  
+  const soundRef = useRef(null);
+  const iosPlayerRef = useRef(null);
   const progressInterval = useRef(null);
   const loadAttempts = useRef(0);
-  const alternativeUrls = useRef([]);
-  const audioContext = useRef(null);
-  // Nova referência para controlar operações em andamento
-  const isOperationInProgress = useRef(false);
-
-  // Sempre que a duração for definida diretamente via prop, considerar os metadados como carregados
+  const audioUrlRef = useRef(audioUrl);
+  
+  // Atualizar ref quando a URL mudar
   useEffect(() => {
-    const validDuration = validateDuration(duration);
-    if (validDuration > 0) {
-      console.log(`[DEBUG] Prop de duração válida recebida: ${validDuration}s`);
-      setAudioDuration(validDuration);
-      setMetadataLoaded(true);
-    } else if (audioDuration > 0) {
-      // Se já temos uma duração válida no estado, considerar os metadados como carregados
-      setMetadataLoaded(true);
-    }
-  }, [duration, audioDuration]);
-
+    audioUrlRef.current = audioUrl;
+  }, [audioUrl]);
+  
+  // Função para criar uma notificação para o usuário tentar novamente
+  const showTryAgainMessage = () => {
+    setShowTryAgain(true);
+    setTimeout(() => setShowTryAgain(false), 3000);
+  };
+  
   // Validar duração para garantir valor numérico válido
   const validateDuration = (value) => {
     // Verificar se o valor é numérico e finito
@@ -232,486 +697,595 @@ export default function ChatAudioPlayer({ audioUrl, duration, isRight }) {
     }
     return parseFloat(value);
   };
-
-  // Tentar pré-carregar os metadados do áudio para obter a duração correta
+  
+  // Desbloquear áudio ao montar o componente
   useEffect(() => {
-    const loadAudioMetadata = async () => {
-      try {
-        // Se já temos uma duração válida, não precisamos carregar os metadados
-        if (audioDuration > 0) {
-          setMetadataLoaded(true);
-          return;
-        }
-
-        // Evitar tentativas infinitas
-        if (loadAttempts.current >= 3) {
-          console.warn('[WARN] Número máximo de tentativas de carregamento atingido');
-          setMetadataLoaded(true); // Para não mostrar "Carregando..." infinitamente
-          setLoadingFailed(true);
-          return;
-        }
-
-        loadAttempts.current += 1;
-        const fullUrl = getFullUrl(audioUrl);
-        console.log('[DEBUG] Pré-carregando metadados do áudio:', fullUrl);
-        
-        // Tentar métodos diferentes para obter a duração
-        try {
-          // Usar Promise.race com diferentes estratégias
-          const result = await Promise.race([
-            // Método 1: Carregamento direto via elemento Audio
-            getDurationFromAudioElement(fullUrl),
-            
-            // Método 2: Usando AudioContext (pode ser mais preciso para alguns formatos)
-            getDurationFromAudioContext(fullUrl),
-            
-            // Timeout para não ficar esperando para sempre
-            new Promise(resolve => 
-              setTimeout(() => resolve({ success: false, reason: 'timeout' }), 5000)
-            )
-          ]);
-          
-          if (result.success && result.duration) {
-            const validDuration = validateDuration(result.duration);
-            if (validDuration > 0) {
-              console.log('[DEBUG] Duração válida obtida:', validDuration);
-              setAudioDuration(validDuration);
-              setMetadataLoaded(true);
-            } else {
-              throw new Error("Duração obtida mas com valor inválido");
-            }
-          } else {
-            throw new Error("Falha ao obter duração: " + (result.reason || "desconhecida"));
-          }
-        } catch (metadataError) {
-          console.warn('[WARN] Erro ao obter metadados:', metadataError);
-          
-          // Tentar o método tradicional como fallback
-          const tempAudio = new Audio();
-          
-          // Criar uma promise que resolve quando os metadados estiverem carregados
-          await new Promise((resolve, reject) => {
-            const onLoadedMetadata = () => {
-              // Verificar se a duração é válida
-              const validDuration = validateDuration(tempAudio.duration);
-              if (validDuration > 0) {
-                console.log('[DEBUG] Duração obtida no método tradicional:', validDuration);
-                setAudioDuration(validDuration);
-                setMetadataLoaded(true);
-                resolve();
-              } else {
-                console.warn('[WARN] Duração inválida obtida no método tradicional:', tempAudio.duration);
-                // Usar uma duração padrão razoável (30s) 
-                setAudioDuration(30);
-                setMetadataLoaded(true);
-                resolve();
-              }
-            };
-            
-            const onError = (error) => {
-              console.error('[ERROR] Erro no método tradicional:', error);
-              // Em caso de erro, usar um valor padrão razoável
-              setAudioDuration(30);
-              setMetadataLoaded(true);
-              setLoadingFailed(true);
-              resolve();
-            };
-            
-            // Timeout para não travar o processo
-            const timeout = setTimeout(() => {
-              console.warn('[WARN] Timeout no método tradicional');
-              tempAudio.removeEventListener('loadedmetadata', onLoadedMetadata);
-              tempAudio.removeEventListener('error', onError);
-              setAudioDuration(30);
-              setMetadataLoaded(true);
-              setLoadingFailed(true);
-              resolve();
-            }, 3000);
-            
-            tempAudio.addEventListener('loadedmetadata', () => {
-              clearTimeout(timeout);
-              onLoadedMetadata();
-            });
-            
-            tempAudio.addEventListener('error', (e) => {
-              clearTimeout(timeout);
-              onError(e);
-            });
-            
-            tempAudio.preload = 'metadata';
-            tempAudio.src = fullUrl;
-            tempAudio.load();
-          });
-        }
-      } catch (error) {
-        console.error('[ERROR] Exceção geral ao carregar áudio:', error);
-        // Usar uma duração padrão para não deixar o usuário sem feedback
-        setAudioDuration(30);
-        setMetadataLoaded(true);
-        setLoadingFailed(true);
-      }
-    };
-    
-    if (audioUrl) {
-      loadAudioMetadata();
-    } else {
-      // Se não houver URL, marcar como carregado para não mostrar "Carregando..." infinitamente
-      setMetadataLoaded(true);
+    // Tentar desbloquear o áudio logo ao carregar o componente
+    if (isIOS()) {
+      forceUnlockAudio();
     }
     
-    // Limpar intervalo quando componente desmontar
     return () => {
+      // Limpeza ao desmontar
       if (progressInterval.current) {
         clearInterval(progressInterval.current);
+        progressInterval.current = null;
       }
-      if (audioRef.current) {
-        audioRef.current.pause();
+      
+      if (soundRef.current) {
+        soundRef.current.unload();
+        soundRef.current = null;
+      }
+      
+      if (iosPlayerRef.current) {
+        iosPlayerRef.current.cleanup();
+        iosPlayerRef.current = null;
       }
     };
-  }, [audioUrl, audioDuration]);
+  }, []);
 
-  // Implementar método para obter duração via elemento Audio
-  const getDurationFromAudioElement = (url) => {
-    return new Promise((resolve) => {
-      const audio = new Audio();
-      
-      const onLoadedMetadata = () => {
-        const validDuration = validateDuration(audio.duration);
-        if (validDuration > 0) {
-          console.log(`[DEBUG] Duração via Audio element: ${validDuration}s`);
-          resolve({ success: true, duration: validDuration });
-        } else {
-          console.warn(`[WARN] Audio element retornou duração inválida: ${audio.duration}`);
-          resolve({ success: false, reason: 'invalid_duration' });
-        }
-      };
-      
-      const onCanPlayThrough = () => {
-        const validDuration = validateDuration(audio.duration);
-        if (validDuration > 0) {
-          console.log(`[DEBUG] Duração via canplaythrough: ${validDuration}s`);
-          resolve({ success: true, duration: validDuration });
-        }
-      };
-      
-      const onError = (e) => {
-        console.error(`[ERROR] Erro ao carregar via Audio element:`, e);
-        resolve({ success: false, reason: 'audio_error' });
-      };
-      
-      // Configurar timeouts e listeners
-      const timeout = setTimeout(() => {
-        console.warn(`[WARN] Timeout ao carregar via Audio element`);
-        audio.removeEventListener('loadedmetadata', onLoadedMetadata);
-        audio.removeEventListener('canplaythrough', onCanPlayThrough);
-        audio.removeEventListener('error', onError);
-        resolve({ success: false, reason: 'timeout' });
-      }, 4000);
-      
-      audio.addEventListener('loadedmetadata', () => {
-        clearTimeout(timeout);
-        onLoadedMetadata();
-      });
-      
-      audio.addEventListener('canplaythrough', () => {
-        clearTimeout(timeout);
-        onCanPlayThrough();
-      });
-      
-      audio.addEventListener('error', (e) => {
-        clearTimeout(timeout);
-        onError(e);
-      });
-      
-      audio.preload = 'metadata';
-      audio.src = url;
-      audio.load();
-    });
+  // Sempre que a duração for definida diretamente via prop, considerar os metadados como carregados
+  useEffect(() => {
+    const validDuration = validateDuration(duration);
+    if (validDuration > 0) {
+      setAudioDuration(validDuration);
+      setMetadataLoaded(true);
+    } else if (audioDuration > 0) {
+      // Se já temos uma duração válida no estado, considerar os metadados como carregados
+      setMetadataLoaded(true);
+    }
+  }, [duration, audioDuration]);
+
+  // Função para mudar o modo de player e reinicializar
+  const switchPlayerMode = () => {
+    const nextMode = getNextPlayerMode();
+    setPlayerMode(nextMode);
+    
+    // Limpar estado e recursos
+    if (soundRef.current) {
+      soundRef.current.unload();
+      soundRef.current = null;
+    }
+    
+    if (iosPlayerRef.current) {
+      iosPlayerRef.current.cleanup();
+      iosPlayerRef.current = null;
+    }
+    
+    if (progressInterval.current) {
+      clearInterval(progressInterval.current);
+      progressInterval.current = null;
+    }
+    
+    // Resetar estados
+    setLoadingFailed(false);
+    setMetadataLoaded(false);
+    setPlayerState('loading');
+    setCurrentTime(0);
+    setIsPlaying(false);
+    setUseProxy(false);
+    loadAttempts.current = 0;
+    
+    // Re-inicializar com o novo modo
+    initializePlayer(audioUrlRef.current, nextMode);
   };
   
-  // Implementar método para obter duração via AudioContext
-  const getDurationFromAudioContext = (url) => {
-    return new Promise((resolve) => {
-      try {
-        // Verificar se o navegador suporta AudioContext
-        if (!window.AudioContext && !window.webkitAudioContext) {
-          return resolve({ success: false, reason: 'no_audio_context' });
-        }
-        
-        const AudioCtx = window.AudioContext || window.webkitAudioContext;
-        const context = new AudioCtx();
-        
-        const request = new XMLHttpRequest();
-        request.open('GET', url, true);
-        request.responseType = 'arraybuffer';
-        
-        request.onload = () => {
-          context.decodeAudioData(
-            request.response,
-            (buffer) => {
-              const duration = buffer.duration;
-              const validDuration = validateDuration(duration);
-              if (validDuration > 0) {
-                console.log(`[DEBUG] AudioContext obteve duração: ${validDuration}s`);
-                resolve({ success: true, duration: validDuration });
-              } else {
-                console.warn(`[WARN] AudioContext retornou duração inválida: ${duration}`);
-                resolve({ success: false, reason: 'invalid_duration' });
-              }
-              context.close();
-            },
-            (error) => {
-              console.error('[ERROR] Erro ao decodificar via AudioContext:', error);
-              resolve({ success: false, reason: 'decode_error' });
-              context.close();
-            }
-          );
-        };
-        
-        request.onerror = (error) => {
-          console.error('[ERROR] Erro na requisição XHR para AudioContext:', error);
-          resolve({ success: false, reason: 'xhr_error' });
-          context.close();
-        };
-        
-        // Timeout para não esperar indefinidamente
-        setTimeout(() => {
-          if (request.readyState !== 4) {
-            request.abort();
-            context.close();
-            resolve({ success: false, reason: 'timeout' });
-          }
-        }, 4000);
-        
-        request.send();
-      } catch (error) {
-        console.error('[ERROR] Exceção ao usar AudioContext:', error);
-        resolve({ success: false, reason: 'context_exception' });
-      }
-    });
+  // Determinar o próximo modo de player em uma rotação
+  const getNextPlayerMode = () => {
+    switch (playerMode) {
+      case 'auto':
+        return 'howler';
+      case 'howler':
+        return 'ios';
+      case 'ios':
+        return 'direct';
+      case 'direct':
+        return 'proxy';
+      case 'proxy':
+      default:
+        return 'auto';
+    }
   };
-
-  // Função para reprodução compativel com iOS
-  const togglePlayback = async () => {
-    // Evitar múltiplas chamadas simultâneas - previne AbortError
-    if (isOperationInProgress.current) {
-      console.log('[DEBUG] Operação já em andamento, ignorando nova solicitação');
+  
+  // Inicializar o player com um modo específico
+  const initializePlayer = (url, mode = 'auto') => {
+    if (!url) {
+      setMetadataLoaded(true);
+      setPlayerState('idle');
       return;
     }
     
-    isOperationInProgress.current = true;
+    // Tentar corrigir problemas na URL
+    let fixedUrl = sanitizeAndFixAudioUrl(url);
     
-    try {
-      if (!audioRef.current) {
-        // Gerar todas as URLs alternativas na primeira vez
-        if (alternativeUrls.current.length === 0) {
-          alternativeUrls.current = tryAlternativeUrls(audioUrl);
-          console.log(`[DEBUG] URLs alternativas geradas:`, alternativeUrls.current);
-        }
-        
-        console.log(`[DEBUG] Tentando reproduzir áudio com ${alternativeUrls.current.length} URLs alternativas`);
-        
-        audioRef.current = new Audio();
-        
-        // Configurar o contexto de áudio para iOS, necessário para desbloquear o áudio
-        if (isIOS && !audioContext.current) {
-          try {
-            const AudioCtx = window.AudioContext || window.webkitAudioContext;
-            audioContext.current = new AudioCtx();
-            
-            // Executar uma oscilação silenciosa para "desbloquear" o áudio no iOS
-            const oscillator = audioContext.current.createOscillator();
-            const gainNode = audioContext.current.createGain();
-            gainNode.gain.value = 0.01; // Quase silencioso
-            oscillator.connect(gainNode);
-            gainNode.connect(audioContext.current.destination);
-            oscillator.start(0);
-            oscillator.stop(0.1);
-            
-            console.log('[DEBUG] Contexto de áudio inicializado para iOS');
-          } catch (error) {
-            console.warn('[WARN] Erro ao inicializar contexto de áudio:', error);
-          }
-        }
-        
-        // Adicionar atributos para melhor compatibilidade com iOS
-        if (isIOS) {
-          audioRef.current.setAttribute('playsinline', 'true');
-          audioRef.current.setAttribute('webkit-playsinline', 'true');
-          audioRef.current.setAttribute('preload', 'auto');
-          audioRef.current.setAttribute('controls', 'true');
-          audioRef.current.muted = false;
-        }
-        
-        // Adicionar tratamento de eventos
-        audioRef.current.addEventListener("loadedmetadata", () => {
-          console.log(`[DEBUG] Metadados carregados. Duração: ${audioRef.current.duration}s`);
-          const validDuration = validateDuration(audioRef.current.duration);
-          if (validDuration > 0) {
-            setAudioDuration(validDuration);
-            setMetadataLoaded(true);
-          } else {
-            // Mesmo com duração inválida, marcar como carregado
-            setMetadataLoaded(true);
-          }
-        });
-        
-        audioRef.current.addEventListener("ended", () => {
-          console.log('[DEBUG] Reprodução concluída');
-          setIsPlaying(false);
-          setCurrentTime(0);
-          clearInterval(progressInterval.current);
-        });
-        
-        audioRef.current.addEventListener("error", (e) => {
-          const errorCode = audioRef.current.error ? audioRef.current.error.code : 'Desconhecido';
-          const errorMessage = audioRef.current.error ? audioRef.current.error.message : 'Erro desconhecido';
-          console.error(`[ERROR] Falha ao carregar áudio: Codigo ${errorCode} - ${errorMessage}`);
-          console.error(`[ERROR] URL que falhou: ${audioRef.current.src}`);
-          
-          // Tentar próxima URL alternativa se disponível
-          if (currentUrlIndex < alternativeUrls.current.length - 1) {
-            console.log(`[DEBUG] Tentando próxima URL alternativa (${currentUrlIndex + 1})`);
-            setCurrentUrlIndex(currentUrlIndex + 1);
-            audioRef.current.src = alternativeUrls.current[currentUrlIndex + 1];
-            audioRef.current.load();
-            // Não marcar como falha ainda, estamos tentando outra URL
-          } else {
-            if (isIOS) {
-              window.alert('Não foi possível reproduzir este áudio no iOS. Toque na tela e tente novamente ou use outro dispositivo.');
-            } else {
-              window.alert('Não foi possível reproduzir o áudio. Verifique a conexão ou tente novamente mais tarde.');
-            }
-            setLoadingFailed(true);
-          }
-        });
-        
-        // Inicialmente, usar a primeira URL alternativa
-        audioRef.current.src = alternativeUrls.current[currentUrlIndex];
-        audioRef.current.load();
-        
-        // Pequena pausa para garantir que o elemento de áudio esteja pronto
-        await new Promise(resolve => setTimeout(resolve, 300));
-      }
-      
-      if (isPlaying) {
-        console.log('[DEBUG] Pausando reprodução');
-        // Se já está tocando, pausar
-        audioRef.current.pause();
-        clearInterval(progressInterval.current);
-        
-        // Pequena pausa para garantir que a pausa foi concluída
-        await new Promise(resolve => setTimeout(resolve, 100));
-        setIsPlaying(false);
+    // Aplicar tratamentos adicionais à URL
+    let fullUrl = getFullUrl(fixedUrl);
+    fullUrl = addCorsProxyIfNeeded(fullUrl);
+    
+    // Se estiver no modo proxy, usar URL com proxy
+    if (mode === 'proxy' || useProxy) {
+      const proxiedUrl = getProxiedUrl(fullUrl);
+      fullUrl = proxiedUrl;
+    }
+    
+    // Verificar se é iOS com problema de reprodução
+    const isIOSDevice = isIOS();
+    
+    // Verificar se a URL contém indicadores de incompatibilidade com iOS
+    const potentialIOSIssue = isIOSDevice && 
+                             (fullUrl.includes('.webm') || 
+                              fullUrl.includes('.ogg') || 
+                              !fullUrl.includes('.mp3') && 
+                              !fullUrl.includes('.mp4') && 
+                              !fullUrl.includes('.m4a') && 
+                              !fullUrl.includes('.aac'));
+    
+    // Escolher o tipo de player baseado no modo
+    if (mode === 'auto') {
+      // Comportamento padrão - iOS para iOS, Howler para o resto
+      if (isIOSDevice) {
+        tryIOSPlayer(fullUrl);
       } else {
-        try {
-          console.log('[DEBUG] Iniciando reprodução');
-          // Se for iOS, usar nossa função especial para tentar múltiplas estratégias
-          if (isIOS) {
-            await attemptIOSAudioPlay(audioRef.current, alternativeUrls.current.slice(currentUrlIndex));
-            
-            // Se chegou aqui, a reprodução foi bem-sucedida
-            setIsPlaying(true);
-            progressInterval.current = setInterval(() => {
-              setCurrentTime(audioRef.current.currentTime);
-            }, 100);
-          } else {
-            // Pequena pausa para garantir que o áudio está pronto para reprodução
-            await new Promise(resolve => setTimeout(resolve, 100));
-            
-            // Para outros navegadores, usar a abordagem padrão
-            await audioRef.current.play();
-            console.log('[DEBUG] Reprodução iniciada com sucesso');
-            setIsPlaying(true);
-            progressInterval.current = setInterval(() => {
-              setCurrentTime(audioRef.current.currentTime);
-            }, 100);
-          }
-        } catch (error) {
-          console.error(`[ERROR] Erro ao iniciar reprodução: ${error.name} - ${error.message}`);
-          
-          // Tratamento específico para o erro AbortError
-          if (error.name === 'AbortError') {
-            console.log('[DEBUG] Detectado AbortError, tentando novamente após pequena pausa');
-            
-            // Pausa para permitir que operações pendentes terminem
-            await new Promise(resolve => setTimeout(resolve, 500));
-            
-            try {
-              // Tentar novamente uma vez mais
-              await audioRef.current.play();
-              console.log('[DEBUG] Reprodução iniciada com sucesso após retry');
-              setIsPlaying(true);
-              progressInterval.current = setInterval(() => {
-                setCurrentTime(audioRef.current.currentTime);
-              }, 100);
-            } catch (retryError) {
-              console.error(`[ERROR] Falha na segunda tentativa: ${retryError.name} - ${retryError.message}`);
-              showPlaybackError(retryError);
-            }
-          } else {
-            showPlaybackError(error);
-          }
-        }
+        tryHowlerPlayer(fullUrl);
       }
-    } finally {
-      // Garantir que o flag seja sempre liberado, mesmo em caso de erro
-      setTimeout(() => {
-        isOperationInProgress.current = false;
-      }, 300);
+    } else if (mode === 'ios') {
+      // Forçar player iOS
+      tryIOSPlayer(fullUrl);
+    } else if (mode === 'howler') {
+      // Forçar Howler
+      tryHowlerPlayer(fullUrl);
+    } else if (mode === 'direct') {
+      // Usar elemento de áudio nativo diretamente
+      tryDirectPlayer(fullUrl);
+    } else if (mode === 'proxy') {
+      // Usar proxy CORS (alternar para URL com proxy)
+      setUseProxy(true);
+      // Determinar o melhor player para URL com proxy
+      if (isIOSDevice) {
+        tryIOSPlayer(fullUrl);
+      } else {
+        tryHowlerPlayer(fullUrl);
+      }
     }
   };
   
-  // Função auxiliar para mostrar mensagens de erro de forma consistente
-  const showPlaybackError = (error) => {
-    if (isIOS) {
-      // Tratamento específico para erros iOS comuns
-      if (error.name === 'NotAllowedError') {
-        window.alert('O iOS bloqueou a reprodução automática. Toque na tela e tente novamente.');
-      } else if (error.name === 'NotSupportedError') {
-        window.alert('Este tipo de áudio não é suportado pelo seu dispositivo iOS. Tente baixar o arquivo.');
-      } else {
-        window.alert('Erro ao reproduzir no iOS. Verifique as configurações de som e tente novamente.');
+  // Player iOS
+  const tryIOSPlayer = (url) => {
+    const iosVersion = getIOSVersion();
+    
+    // Desbloquear o áudio do sistema
+    forceUnlockAudio();
+    
+    // Tentar aplicar estratégias específicas para iOS problemas de áudio
+    handleIOSSpecificIssues(url).then(optimizedUrl => {
+      try {
+        // Criar player nativo para iOS
+        iosPlayerRef.current = createIOSAudioPlayer(optimizedUrl, {
+          onLoad: (audioDuration) => {
+            const validDuration = validateDuration(audioDuration);
+            setAudioDuration(validDuration || 30);
+            setMetadataLoaded(true);
+            setLoadingFailed(false);
+            setPlayerState('ready');
+          },
+          onPlay: () => {
+            setPlayerState('playing');
+          },
+          onPause: () => {
+            setPlayerState('paused');
+          },
+          onEnd: () => {
+            setIsPlaying(false);
+            setCurrentTime(0);
+            setPlayerState('ready');
+            if (progressInterval.current) {
+              clearInterval(progressInterval.current);
+              progressInterval.current = null;
+            }
+          },
+          onTimeUpdate: (time) => {
+            setCurrentTime(time);
+          },
+          onError: (error) => {
+            setLoadingFailed(true);
+            setMetadataLoaded(true);
+            setPlayerState('error');
+            showTryAgainMessage();
+          }
+        });
+        
+        // Se temos duração prévia, usar para mostrar mesmo que não consiga carregar metadata
+        if (duration > 0) {
+          setAudioDuration(duration);
+          setMetadataLoaded(true);
+          setPlayerState('ready');
+        }
+      } catch (error) {
+        setLoadingFailed(true);
+        setMetadataLoaded(true);
+        setPlayerState('error');
       }
-    } else {
-      window.alert('Não foi possível reproduzir o áudio. Verifique a conexão ou tente novamente mais tarde.');
+    });
+  };
+  
+  // Player direto - elemento de áudio nativo mais simples
+  const tryDirectPlayer = (url) => {
+    try {
+      // Criar um elemento de áudio simples
+      const directAudio = new Audio(url);
+      
+      // Configurações básicas
+      directAudio.preload = 'auto';
+      directAudio.setAttribute('playsinline', '');
+      directAudio.setAttribute('webkit-playsinline', '');
+      
+      // Eventos
+      directAudio.addEventListener('loadedmetadata', () => {
+        const safeDuration = isFinite(directAudio.duration) ? directAudio.duration : 0;
+        setAudioDuration(safeDuration || 30);
+        setMetadataLoaded(true);
+        setPlayerState('ready');
+      });
+      
+      directAudio.addEventListener('error', (e) => {
+        setLoadingFailed(true);
+        setPlayerState('error');
+      });
+      
+      directAudio.addEventListener('playing', () => {
+        setPlayerState('playing');
+      });
+      
+      directAudio.addEventListener('pause', () => {
+        setPlayerState('paused');
+      });
+      
+      directAudio.addEventListener('ended', () => {
+        setIsPlaying(false);
+        setCurrentTime(0);
+        setPlayerState('ready');
+      });
+      
+      directAudio.addEventListener('timeupdate', () => {
+        setCurrentTime(directAudio.currentTime || 0);
+      });
+      
+      // Armazenar na ref do soundRef
+      soundRef.current = {
+        play: () => {
+          forceUnlockAudio();
+          directAudio.play().catch(e => {
+            // Error handler
+          });
+        },
+        pause: () => {
+          directAudio.pause();
+        },
+        stop: () => {
+          directAudio.pause();
+          directAudio.currentTime = 0;
+        },
+        seek: (time) => {
+          directAudio.currentTime = time;
+        },
+        unload: () => {
+          directAudio.pause();
+          directAudio.src = '';
+          directAudio.load();
+        },
+        playing: () => !directAudio.paused,
+        duration: () => directAudio.duration || 0,
+        seek: () => directAudio.currentTime || 0
+      };
+      
+      // Carregar o áudio
+      directAudio.load();
+      
+    } catch (error) {
+      setLoadingFailed(true);
+      setMetadataLoaded(true);
+      setPlayerState('error');
+    }
+  };
+  
+  // Player Howler
+  const tryHowlerPlayer = (url) => {
+    try {
+      const howlerConfig = {
+        src: [url],
+        html5: true,
+        preload: true,
+        format: ['aac', 'm4a', 'mp4', 'caf', 'mp3', 'mpeg', 'opus', 'ogg', 'oga', 'wav', 'weba', 'webm', 'dolby', 'flac'],
+        volume: 1.0,
+        xhr: {
+          method: 'GET',
+          headers: {
+            'Accept': 'audio/mp4,audio/aac,audio/x-m4a,audio/mpeg,audio/*;q=0.8,*/*;q=0.5',
+            'X-Requested-With': 'XMLHttpRequest',
+            'X-Device': isIOS() ? 'iOS' : 'other',
+            'Cache-Control': 'no-cache'
+          }
+        },
+        onload: function() {
+          setMetadataLoaded(true);
+          const validDuration = validateDuration(this.duration());
+          setAudioDuration(validDuration || 30);
+          setLoadingFailed(false);
+          setPlayerState('ready');
+        },
+        onloaderror: function(id, error) {
+          loadAttempts.current += 1;
+          
+          if (loadAttempts.current >= 3) {
+            setLoadingFailed(true);
+            setMetadataLoaded(true);
+            setPlayerState('error');
+            showTryAgainMessage();
+          } else {
+            // Tentar novamente com configuração HTML5 alternativa
+            soundRef.current.unload();
+            soundRef.current = new Howl({
+              ...howlerConfig,
+              html5: true
+            });
+          }
+        },
+        onplayerror: function(id, error) {
+          setLoadingFailed(true);
+          setPlayerState('error');
+          showTryAgainMessage();
+        },
+        onplay: function() {
+          setPlayerState('playing');
+        },
+        onpause: function() {
+          setPlayerState('paused');
+        },
+        onend: function() {
+          setIsPlaying(false);
+          setCurrentTime(0);
+          setPlayerState('ready');
+          if (progressInterval.current) {
+            clearInterval(progressInterval.current);
+            progressInterval.current = null;
+          }
+        }
+      };
+      
+      soundRef.current = new Howl(howlerConfig);
+    } catch (error) {
+      setLoadingFailed(true);
+      setMetadataLoaded(true);
+      setPlayerState('error');
+      showTryAgainMessage();
+    }
+  };
+  
+  // Configurar o player de áudio quando a URL de áudio mudar
+  useEffect(() => {
+    // Limpar recursos anteriores
+    if (soundRef.current) {
+      soundRef.current.unload();
+      soundRef.current = null;
     }
     
+    if (iosPlayerRef.current) {
+      iosPlayerRef.current.cleanup();
+      iosPlayerRef.current = null;
+    }
+    
+    if (progressInterval.current) {
+      clearInterval(progressInterval.current);
+      progressInterval.current = null;
+    }
+    
+    // Resetar estados para nova URL
+    setLoadingFailed(false);
+    setMetadataLoaded(false);
+    setCurrentTime(0);
     setIsPlaying(false);
-    setLoadingFailed(true);
+    loadAttempts.current = 0;
+    
+    // Inicializar player com o modo atual
+    initializePlayer(audioUrl, playerMode);
+  }, [audioUrl, duration, playerMode]);
+
+  const togglePlayback = () => {
+    // Verificar se estamos no estado de erro, e se sim, tentar reiniciar
+    if (playerState === 'error') {
+      resetPlayer();
+      return;
+    }
+    
+    // No iOS, usar o player nativo especial
+    if (isIOS() && iosPlayerRef.current) {
+      // Força desbloqueio do áudio antes da tentativa de reprodução
+      forceUnlockAudio();
+      
+      if (isPlaying) {
+        // Se já está tocando, pausar
+        iosPlayerRef.current.pause();
+        if (progressInterval.current) {
+          clearInterval(progressInterval.current);
+          progressInterval.current = null;
+        }
+      } else {
+        // Se está pausado, tocar
+        iosPlayerRef.current.play();
+        
+        // Verificar se realmente começou a tocar
+        setTimeout(() => {
+          if (iosPlayerRef.current && iosPlayerRef.current.element) {
+            const isActuallyPlaying = !iosPlayerRef.current.element.paused;
+            
+            // Se não estiver tocando após 500ms, considerar como falha
+            if (!isActuallyPlaying && playerState !== 'error') {
+              switchPlayerMode();
+              return;
+            }
+          }
+        }, 500);
+        
+        // Atualizar o progresso
+        if (!progressInterval.current) {
+          progressInterval.current = setInterval(() => {
+            if (iosPlayerRef.current && iosPlayerRef.current.isPlaying()) {
+              setCurrentTime(iosPlayerRef.current.getCurrentTime());
+            }
+          }, 100);
+        }
+      }
+      
+      setIsPlaying(!isPlaying);
+      return;
+    }
+    
+    // Para outros navegadores, usar Howler
+    if (!soundRef.current) {
+      return;
+    }
+
+    if (isPlaying) {
+      // Se já está tocando, pausar
+      soundRef.current.pause();
+      if (progressInterval.current) {
+      clearInterval(progressInterval.current);
+        progressInterval.current = null;
+      }
+    } else {
+      // Se está pausado, tocar
+      try {
+        const playId = soundRef.current.play();
+        
+        // Atualizar o progresso de reprodução em intervalos regulares
+      progressInterval.current = setInterval(() => {
+          if (soundRef.current && soundRef.current.playing()) {
+            setCurrentTime(soundRef.current.seek());
+          }
+      }, 100);
+      } catch (e) {
+        setLoadingFailed(true);
+        setPlayerState('error');
+        showTryAgainMessage();
+        return; // Não continuar se não conseguir reproduzir
+      }
+    }
+
+    setIsPlaying(!isPlaying);
+  };
+
+  // Resetar o player para a URL original
+  const resetPlayer = () => {
+    // Limpar estado e recursos
+    if (soundRef.current) {
+      soundRef.current.unload();
+      soundRef.current = null;
+    }
+    
+    if (iosPlayerRef.current) {
+      iosPlayerRef.current.cleanup();
+      iosPlayerRef.current = null;
+    }
+    
+    if (progressInterval.current) {
+      clearInterval(progressInterval.current);
+      progressInterval.current = null;
+    }
+    
+    // Resetar estados
+    setLoadingFailed(false);
+    setMetadataLoaded(false);
+    setPlayerState('loading');
+    setCurrentTime(0);
+    setIsPlaying(false);
+    setPlayerMode('auto');
+    setUseProxy(false);
+    loadAttempts.current = 0;
+    
+    // Re-inicializar com a URL atual
+    initializePlayer(audioUrlRef.current, 'auto');
+  };
+
+  // Função agressiva para tratar problemas de áudio no iOS
+  const handleIOSSpecificIssues = async (url) => {
+    // 1. Tentar desbloquear áudio
+    forceUnlockAudio();
+    
+    // 2. Verificar se a URL é acessível
+    const isAccessible = await checkUrlAccessibility(url);
+    if (!isAccessible) {
+      return getProxiedUrl(url);
+    }
+    
+    // 3. Verificar se o formato é compatível com iOS
+    if (url.includes('.webm') || url.includes('.ogg')) {
+      // Tentar converter no cliente se possível
+      const convertedUrl = await tryConvertAudioForIOS(url);
+      if (convertedUrl) {
+        return convertedUrl;
+      }
+      
+      // Se a conversão falhar, usar proxy como última alternativa
+      return getProxiedUrl(url);
+    }
+    
+    return url;
   };
 
   return (
-    <Box className={classes.audioContainer} style={{ alignSelf: isRight ? "flex-end" : "flex-start" }}>
+    <>
+      <Box className={classes.audioContainer} style={{ alignSelf: isRight ? "flex-end" : "flex-start", position: "relative" }}>
       <div className={classes.playerControls}>
         <IconButton 
           className={classes.playButton} 
-          onClick={togglePlayback}
-          disabled={loadingFailed || isOperationInProgress.current}
-          size="small"
+            onClick={togglePlayback}
+            disabled={loadingFailed || playerState === 'loading'}
+          size="small" 
         >
-          {isPlaying ? <PauseIcon fontSize="small" /> : <PlayArrowIcon fontSize="small" />}
+            {isPlaying ? <PauseIcon fontSize="small" /> : <PlayArrowIcon fontSize="small" />}
         </IconButton>
         <div className={classes.progressContainer}>
           <LinearProgress 
             className={classes.progressBar} 
-            variant="determinate" 
-            value={audioDuration > 0 ? (currentTime / audioDuration) * 100 : 0}
+              variant={metadataLoaded ? "determinate" : "indeterminate"}
+              value={audioDuration > 0 ? (currentTime / audioDuration) * 100 : 0}
           />
           <div className={classes.timeInfo}>
-            <Typography className={classes.timeText} variant="caption">
+              <Typography className={classes.timeText} variant="caption">
               {formatTime(currentTime)}
             </Typography>
-            <Typography className={classes.timeText} variant="caption">
-              {loadingFailed 
-                ? "Erro" 
-                : (!metadataLoaded 
-                    ? "Carregando..." 
-                    : formatTime(audioDuration))}
+              <Typography className={classes.timeText} variant="caption" 
+                onClick={resetPlayer} // Clicar no tempo reseta o player
+                style={loadingFailed ? {color: theme.palette.error.main, cursor: 'pointer'} : {}}
+              >
+                {loadingFailed 
+                  ? "Erro" 
+                  : (!metadataLoaded 
+                      ? "Carregando..." 
+                      : formatTime(audioDuration))}
             </Typography>
           </div>
         </div>
       </div>
+        
+        {/* Botão de retry quando ocorrer erro */}
+        {(loadingFailed || playerState === 'error') && (
+          <IconButton 
+            className={classes.retryButton}
+            onClick={switchPlayerMode}
+            size="small"
+          >
+            <RefreshIcon style={{ fontSize: 14 }} />
+          </IconButton>
+        )}
     </Box>
+      
+      <Snackbar
+        open={showTryAgain}
+        message="Tente clicar no botão de retry ou verifique o modo silencioso"
+        autoHideDuration={3000}
+        onClose={() => setShowTryAgain(false)}
+      />
+    </>
   );
-}
+} 

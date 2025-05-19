@@ -16,7 +16,8 @@ import { getBackendUrl } from "../../config";
 import logo from "../../assets/logo.png";
 import logoDark from "../../assets/logo-black.png";
 
-const backgroundImageUrl = "https://i.imgur.com/ZCODluy.png"; // Imagem de Fundo da Tela Inicial
+	// Link original que será mantido como referência
+	const defaultBackgroundImageUrl = "https://i.imgur.com/ZCODluy.png";
 
 const defaultTicketsManagerWidth = 550;
 const minTicketsManagerWidth = 404;
@@ -53,6 +54,7 @@ const useStyles = makeStyles((theme) => ({
 		alignItems: "center",
 		height: "100%",
 		textAlign: "center",
+		flexDirection: "column",
 	},
 	dragger: {
 		width: "5px",
@@ -71,6 +73,42 @@ const useStyles = makeStyles((theme) => ({
 		logo: theme.logo,
 		content: "url(" + (theme.mode === "light" ? theme.calculatedLogoLight() : theme.calculatedLogoDark()) + ")"
 	},
+	mediaContainer: {
+		width: '100%',
+		display: 'flex',
+		justifyContent: 'center',
+		alignItems: 'center',
+		flexDirection: 'column',
+		padding: '20px',
+	},
+	youtubeContainer: {
+		position: 'relative',
+		paddingTop: '56.25%', // Proporção 16:9
+		borderRadius: '8px',
+		overflow: 'hidden',
+	},
+	youtubeIframe: {
+		position: 'absolute',
+		top: 0,
+		left: 0,
+		width: '100%',
+		height: '100%',
+		border: 'none',
+	},
+	welcomeImage: {
+		height: 'auto',
+		maxHeight: '70vh',
+		objectFit: 'contain',
+		borderRadius: '8px',
+	},
+	welcomeVideo: {
+		maxHeight: '70vh',
+		borderRadius: '8px',
+	},
+	welcomeMessage: {
+		marginTop: '20px',
+		maxWidth: '600px',
+	}
 }));
 
 
@@ -84,12 +122,35 @@ const TicketsCustom = () => {
 
 	const [ticketsManagerWidth, setTicketsManagerWidth] = useState(0);
 	const ticketsManagerWidthRef = useRef(ticketsManagerWidth);
+		const [mediaConfig, setMediaConfig] = useState({
+			type: 'image', // 'image' ou 'video'
+			url: defaultBackgroundImageUrl,
+			width: '50%'
+		});
 
 	useEffect(() => {
 		if (user && user.defaultTicketsManagerWidth) {
 			setTicketsManagerWidth(user.defaultTicketsManagerWidth);
 		}
 	}, [user]);
+
+		useEffect(() => {
+			const fetchMediaConfig = async () => {
+				try {
+					const { data } = await api.get('/settings/welcome-media');
+					if (data && data.url) {
+						setMediaConfig(prevConfig => ({
+							...prevConfig,
+							...data
+						}));
+					}
+				} catch (error) {
+					console.error("Erro ao buscar configuração de mídia:", error);
+				}
+			};
+
+			fetchMediaConfig();
+		}, []);
 
 	// useEffect(() => {
 	// 	if (ticketId && currentTicket.uuid === undefined) {
@@ -132,6 +193,64 @@ const TicketsCustom = () => {
 		}
 	};
 
+		// Renderiza mídia baseada na configuração
+		const renderMedia = () => {
+			if (!mediaConfig.url) return null;
+			
+			// Definir estilo baseado na largura configurada pelo usuário
+			const containerStyle = {
+				width: mediaConfig.width || '50%',
+				maxWidth: '800px'
+			};
+			
+			if (mediaConfig.type === "youtube") {
+				// Extrair ID do vídeo do YouTube a partir da URL
+				const getYoutubeVideoId = (url) => {
+					// Tenta diferentes formatos de URL do YouTube
+					const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|&v=)([^#&?]*).*/;
+					const match = url.match(regExp);
+					return (match && match[2].length === 11) ? match[2] : null;
+				};
+				
+				const videoId = getYoutubeVideoId(mediaConfig.url);
+				if (!videoId) return <div>URL do YouTube inválida</div>;
+				
+				return (
+					<div className={classes.youtubeContainer} style={containerStyle}>
+						<iframe 
+							className={classes.youtubeIframe}
+							src={`https://www.youtube.com/embed/${videoId}`}
+							title="YouTube video player" 
+							frameBorder="0" 
+							allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+							allowFullScreen
+						/>
+					</div>
+				);
+			} else if (mediaConfig.type === "video") {
+				return (
+					<video 
+						className={classes.welcomeVideo}
+						src={mediaConfig.url}
+						style={{ width: mediaConfig.width || '50%' }}
+						controls
+						autoPlay
+						muted
+						loop
+					/>
+				);
+			} else {
+				return (
+					<img 
+						className={classes.welcomeImage}
+						src={`${mediaConfig.url}?v=${Date.now()}`}
+						style={{ width: mediaConfig.width || '50%' }}
+						alt="Imagem de boas-vindas" 
+					/>
+				);
+			}
+		};
+
 	return (
 		<QueueSelectedProvider>
 			<div className={classes.chatContainer}>
@@ -153,17 +272,13 @@ const TicketsCustom = () => {
 						) : (
 							<Hidden only={["sm", "xs"]}>
 								<Paper square variant="outlined" className={classes.welcomeMsg}>
-									<span>
-										<center>
-										<img 
-												className={classes.backgroundinicio} 
-												src={`${backgroundImageUrl}?v=${Date.now()}`}
-												width="50%" 
-												alt="Feliz Natal!" 
-											/>
-										</center>
+									<div className={classes.mediaContainer}>
+										{renderMedia()}
+									</div>
+									<div className={classes.welcomeMessage}>
 										{i18n.t("chat.noTicketMessage")}
-									</span>								</Paper>
+									</div>
+								</Paper>
 							</Hidden>
 						)}
 					</div>

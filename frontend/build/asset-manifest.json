@@ -1,20 +1,18 @@
 {
   "files": {
     "main.css": "/static/css/main.6b263f52.chunk.css",
-    "main.js": "/static/js/main.f0a756fc.chunk.js",
-    "runtime-main.js": "/static/js/runtime-main.cebfe417.js",
+    "main.js": "/static/js/main.f76fc7ae.chunk.js",
+    "runtime-main.js": "/static/js/runtime-main.b8621b4b.js",
     "static/css/2.aaf5b4bc.chunk.css": "/static/css/2.aaf5b4bc.chunk.css",
-    "static/js/2.ac3f1a61.chunk.js": "/static/js/2.ac3f1a61.chunk.js",
-    "static/js/3.55d7ce9c.chunk.js": "/static/js/3.55d7ce9c.chunk.js",
-    "static/js/4.74666818.chunk.js": "/static/js/4.74666818.chunk.js",
-    "static/js/5.9e82e681.chunk.js": "/static/js/5.9e82e681.chunk.js",
+    "static/js/2.a95f7ea3.chunk.js": "/static/js/2.a95f7ea3.chunk.js",
+    "static/js/3.747359ea.chunk.js": "/static/js/3.747359ea.chunk.js",
+    "static/js/4.afcd2071.chunk.js": "/static/js/4.afcd2071.chunk.js",
     "index.html": "/index.html",
-    "precache-manifest.5a92d4fc6aa90804171ac10cefb4ad9e.js": "/precache-manifest.5a92d4fc6aa90804171ac10cefb4ad9e.js",
+    "precache-manifest.1aa647d19dea248ff03238b2260e9927.js": "/precache-manifest.1aa647d19dea248ff03238b2260e9927.js",
     "service-worker.js": "/service-worker.js",
-    "static/js/2.ac3f1a61.chunk.js.LICENSE.txt": "/static/js/2.ac3f1a61.chunk.js.LICENSE.txt",
-    "static/js/3.55d7ce9c.chunk.js.LICENSE.txt": "/static/js/3.55d7ce9c.chunk.js.LICENSE.txt",
-    "static/js/4.74666818.chunk.js.LICENSE.txt": "/static/js/4.74666818.chunk.js.LICENSE.txt",
-    "static/js/5.9e82e681.chunk.js.LICENSE.txt": "/static/js/5.9e82e681.chunk.js.LICENSE.txt",
+    "static/js/2.a95f7ea3.chunk.js.LICENSE.txt": "/static/js/2.a95f7ea3.chunk.js.LICENSE.txt",
+    "static/js/3.747359ea.chunk.js.LICENSE.txt": "/static/js/3.747359ea.chunk.js.LICENSE.txt",
+    "static/js/4.afcd2071.chunk.js.LICENSE.txt": "/static/js/4.afcd2071.chunk.js.LICENSE.txt",
     "static/media/chat_notify.mp3": "/static/media/chat_notify.2529c259.mp3",
     "static/media/favicon.ico": "/static/media/favicon.61fd2af8.ico",
     "static/media/flowbuilders.5301f11e.png": "/static/media/flowbuilders.5301f11e.png",
@@ -31,10 +29,10 @@
     "static/media/whatsapp.7f02d15e.png": "/static/media/whatsapp.7f02d15e.png"
   },
   "entrypoints": [
-    "static/js/runtime-main.cebfe417.js",
+    "static/js/runtime-main.b8621b4b.js",
     "static/css/2.aaf5b4bc.chunk.css",
-    "static/js/2.ac3f1a61.chunk.js",
+    "static/js/2.a95f7ea3.chunk.js",
     "static/css/main.6b263f52.chunk.css",
-    "static/js/main.f0a756fc.chunk.js"
+    "static/js/main.f76fc7ae.chunk.js"
   ]
 }

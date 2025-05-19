@@ -12,6 +12,7 @@ import PlansManager from "../../components/PlansManager";
 import HelpsManager from "../../components/HelpsManager";
 import Options from "../../components/Settings/Options";
 import Whitelabel from "../../components/Settings/Whitelabel";
+import WelcomeMedia from "../../components/Settings/WelcomeMedia";
 
 import { i18n } from "../../translate/i18n.js";
 import { toast } from "react-toastify";
@@ -153,6 +154,7 @@ const SettingsCustom = () => {
             >
               <Tab label={i18n.t("settings.tabs.options")} value={"options"} />
               {schedulesEnabled && <Tab label="Horários" value={"schedules"} />}
+              <Tab label="Boas-vindas" value={"welcomeMedia"} />
               {isSuper() ? <Tab label="Empresas" value={"companies"} /> : null}
               {isSuper() ? <Tab label={i18n.t("settings.tabs.plans")} value={"plans"} /> : null}
               {isSuper() ? <Tab label={i18n.t("settings.tabs.helps")} value={"helps"} /> : null}
@@ -169,6 +171,13 @@ const SettingsCustom = () => {
                   onSubmit={handleSubmitSchedules}
                   initialValues={schedules}
                 />
+              </TabPanel>
+              <TabPanel
+                className={classes.container}
+                value={tab}
+                name={"welcomeMedia"}
+              >
+                <WelcomeMedia />
               </TabPanel>
               <OnlyForSuperUser
                 user={currentUser}

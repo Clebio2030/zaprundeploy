@@ -270,7 +270,6 @@ export default function ChatMessages({
   const handleFilesSelected = (files, progressCallback, completeCallback) => {
     // Verificar se recebemos arquivos válidos
     if (!files || (Array.isArray(files) && files.length === 0)) {
-      console.error("[ERROR] Nenhum arquivo recebido para upload");
       if (completeCallback) completeCallback();
       return;
     }
@@ -279,11 +278,8 @@ export default function ChatMessages({
     
     // Se for um único arquivo (caso do áudio) ou uma lista de arquivos
     if (files instanceof File) {
-      console.log("[DEBUG] Adicionando arquivo único ao FormData:", files.name, files.size, files.type);
-      
       // Verificar se o arquivo tem tamanho válido
       if (files.size === 0) {
-        console.error("[ERROR] Arquivo com tamanho zero:", files.name);
         window.alert("O arquivo de áudio está vazio. Tente gravar novamente com um microfone diferente.");
         if (completeCallback) completeCallback();
         return;
@@ -291,16 +287,6 @@ export default function ChatMessages({
       
       // Para arquivos de áudio, verificar codec e converter se necessário
       if (files.type.startsWith('audio/')) {
-        console.log("[DEBUG] Processando arquivo de áudio");
-        
-        // Registrar informações sobre o arquivo para diagnóstico
-        console.log(`[DEBUG] Detalhes do arquivo de áudio original:`, {
-          nome: files.name,
-          tamanho: files.size,
-          tipo: files.type,
-          ultimaModificacao: files.lastModified
-        });
-        
         try {
           // Determinar a extensão correta com base no tipo MIME
           let audioExt = 'mp3';  // Padrão para compatibilidade máxima
@@ -324,23 +310,17 @@ export default function ChatMessages({
             reader.onload = function(e) {
               try {
                 if (!e.target.result || e.target.result.byteLength === 0) {
-                  console.error("[ERROR] FileReader não leu dados do arquivo");
                   reject(new Error("Não foi possível ler os dados do arquivo de áudio"));
                   return;
                 }
-                
-                console.log(`[DEBUG] Arquivo lido como ArrayBuffer: ${e.target.result.byteLength} bytes`);
                 
                 // Criar blob a partir do ArrayBuffer
                 const audioBlob = new Blob([e.target.result], { type: files.type });
                 
                 if (audioBlob.size === 0) {
-                  console.error("[ERROR] Blob criado tem tamanho zero");
                   reject(new Error("Falha ao processar dados do áudio"));
                   return;
                 }
-                
-                console.log(`[DEBUG] Blob criado com tamanho: ${audioBlob.size} bytes`);
                 
                 // Criar arquivo a partir do blob
                 const audioFile = new File([audioBlob], newFileName, { 
@@ -348,17 +328,13 @@ export default function ChatMessages({
                   lastModified: Date.now()
                 });
                 
-                console.log(`[DEBUG] Arquivo final criado: ${audioFile.name}, tamanho: ${audioFile.size}, tipo: ${audioFile.type}`);
-                
                 resolve(audioFile);
               } catch (error) {
-                console.error("[ERROR] Erro ao processar dados do áudio:", error);
                 reject(error);
               }
             };
             
             reader.onerror = function() {
-              console.error("[ERROR] FileReader encontrou um erro ao ler o arquivo");
               reject(new Error("Erro ao ler o arquivo de áudio"));
             };
             
@@ -371,7 +347,6 @@ export default function ChatMessages({
             .then(audioFile => {
               // Verificação final
               if (audioFile.size === 0) {
-                console.error("[ERROR] Arquivo de áudio processado tem tamanho zero");
                 window.alert("Erro ao processar o áudio. Tente novamente.");
                 if (completeCallback) completeCallback();
                 return;
@@ -385,8 +360,6 @@ export default function ChatMessages({
                 audioFormData.append("message", contentMessage);
               }
               
-              console.log("[DEBUG] Enviando áudio para o servidor");
-              
               api.post(`/chats/${chat.id}/messages/upload`, audioFormData, {
                 headers: {
                   'Content-Type': 'multipart/form-data'
@@ -395,23 +368,19 @@ export default function ChatMessages({
                   const percentCompleted = Math.round(
                     (progressEvent.loaded * 100) / progressEvent.total
                   );
-                  console.log(`[DEBUG] Progresso do upload de áudio: ${percentCompleted}%`);
                   if (progressCallback) progressCallback(percentCompleted);
                 }
               })
               .then((response) => {
-                console.log("[DEBUG] Upload de áudio bem-sucedido:", response.data);
                 setContentMessage("");
                 if (completeCallback) completeCallback();
               })
               .catch(err => {
-                console.error("[ERROR] Falha no upload de áudio:", err.message);
                 window.alert("Erro ao enviar o áudio. Tente novamente.");
                 if (completeCallback) completeCallback();
               });
             })
             .catch(error => {
-              console.error("[ERROR] Falha ao processar o arquivo de áudio:", error);
               window.alert("Não foi possível processar o arquivo de áudio. Tente novamente.");
               if (completeCallback) completeCallback();
             });
@@ -419,7 +388,6 @@ export default function ChatMessages({
           // Retorna aqui pois o envio será tratado pela Promise
           return;
         } catch (error) {
-          console.error("[ERROR] Exceção ao processar áudio:", error);
           window.alert("Erro ao processar o áudio. Tente novamente.");
           if (completeCallback) completeCallback();
           return;
@@ -428,23 +396,19 @@ export default function ChatMessages({
         formData.append("files", files);
       }
     } else {
-      console.log("[DEBUG] Adicionando múltiplos arquivos ao FormData:", Array.from(files).length);
       let validFilesCount = 0;
       
       Array.from(files).forEach(file => {
         // Verificar se o arquivo tem tamanho válido
         if (file.size === 0) {
-          console.error("[ERROR] Arquivo com tamanho zero:", file.name);
           return; // Pular este arquivo
         }
         
-        console.log("[DEBUG] Arquivo:", file.name, file.size, file.type);
         formData.append("files", file);
         validFilesCount++;
       });
       
       if (validFilesCount === 0) {
-        console.error("[ERROR] Nenhum arquivo válido para enviar");
         window.alert("Nenhum arquivo válido para enviar. Verifique se os arquivos selecionados não estão vazios.");
         if (completeCallback) completeCallback();
         return;
@@ -456,20 +420,10 @@ export default function ChatMessages({
       formData.append("message", contentMessage);
     }
     
-    console.log("[DEBUG] Enviando upload para:", `/chats/${chat.id}/messages/upload`);
-    console.log("[DEBUG] Chat ID:", chat.id);
-    
-    // Verificação detalhada do FormData antes do envio
-    const filesInFormData = formData.getAll("files");
-    console.log("[DEBUG] FormData contém files:", filesInFormData.length);
-    filesInFormData.forEach((file, index) => {
-      console.log(`[DEBUG] FormData file ${index}:`, file.name, file.size, file.type);
-    });
-    
     // Verificar se temos arquivos no FormData antes de enviar
+    const filesInFormData = formData.getAll("files");
     if (filesInFormData.length === 0) {
-      console.error("[ERROR] FormData não contém arquivos");
-      window.alert("Erro: Não foi possível preparar o arquivo para upload");
+      window.alert("Erro: Nenhum arquivo válido para enviar.");
       if (completeCallback) completeCallback();
       return;
     }
@@ -477,14 +431,11 @@ export default function ChatMessages({
     // Verificar tamanho dos arquivos
     const hasInvalidFiles = filesInFormData.some(file => file.size === 0);
     if (hasInvalidFiles) {
-      console.error("[ERROR] Alguns arquivos têm tamanho zero");
       if (!window.confirm("Alguns arquivos parecem estar vazios. Deseja continuar mesmo assim?")) {
         if (completeCallback) completeCallback();
         return;
       }
     }
-    
-    console.log("[DEBUG API] Enviando FormData para:", `/chats/${chat.id}/messages/upload`);
     
     api.post(`/chats/${chat.id}/messages/upload`, formData, {
       headers: {
@@ -494,12 +445,10 @@ export default function ChatMessages({
         const percentCompleted = Math.round(
           (progressEvent.loaded * 100) / progressEvent.total
         );
-        console.log(`[DEBUG] Progresso do upload: ${percentCompleted}%`);
         if (progressCallback) progressCallback(percentCompleted);
       }
     })
       .then((response) => {
-        console.log("[DEBUG] Upload bem-sucedido:", response.data);
         setContentMessage("");
         if (completeCallback) completeCallback();
       })
@@ -569,15 +518,6 @@ export default function ChatMessages({
   
   // Função auxiliar para determinar se uma mensagem é do usuário atual
   const isMessageFromMe = (message, userId) => {
-    // Adicionar log detalhado para depuração
-    console.log('[DEBUG] Verificando isMessageFromMe:', {
-      messageId: message.id,
-      fromMeValue: message.fromMe,
-      senderId: message.senderId,
-      currentUserId: userId,
-      senderIdInSenderObj: message.sender?.id
-    });
-    
     // Se fromMe estiver explicitamente definido, usá-lo como determinante
     if (message.fromMe === true) {
       return true;
@@ -626,24 +566,6 @@ export default function ChatMessages({
         </div>
       );
     }
-
-    // Log para monitorar mensagens de áudio recebidas do servidor (manter essa funcionalidade)
-    messages.forEach(message => {
-      if (message.files && message.files.length > 0) {
-        message.files.forEach(file => {
-          const extension = file.name.split('.').pop().toLowerCase();
-          const isAudio = ['mp3', 'wav', 'ogg', 'webm', 'opus'].includes(extension);
-          
-          if (isAudio) {
-            console.log('[DEBUG] Arquivo de áudio recebido:', {
-              name: file.name,
-              url: file.url,
-              metadata: file.metadata
-            });
-          }
-        });
-      }
-    });
 
     // Renderizar cada mensagem individualmente (sem agrupamento)
     return messages.map((message) => {
@@ -698,20 +620,6 @@ export default function ChatMessages({
         // Forçar um nome temporário para propósitos de debug
         return "Remetente";
       })();
-      
-      // Debug da estrutura da mensagem e dados do remetente
-      console.log('[DEBUG] Mensagem para renderizar:', {
-        id: message.id,
-        senderId: message.senderId,
-        fromMe: message.fromMe,
-        sender: message.sender,
-        isMe: isMe,
-        currentUserId: user.id,
-        determinedSenderName: senderName,
-        showSenderName: !isMe || forceShowSender,
-        isUploading: message.isUploading,
-        uploadProgress: message.uploadProgress
-      });
 
       return (
         <div key={message.id} className={isMe ? classes.boxRight : classes.boxLeft}>

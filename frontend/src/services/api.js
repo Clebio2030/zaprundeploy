@@ -9,7 +9,6 @@ const api = axios.create({
 api.interceptors.request.use(config => {
 	// Verifica se a requisição contém FormData para configuar o Content-Type apropriado
 	if (config.data instanceof FormData) {
-		console.log("[DEBUG API] Enviando FormData para:", config.url);
 		Object.assign(config.headers, {
 			'Content-Type': 'multipart/form-data'
 		});
@@ -17,17 +16,20 @@ api.interceptors.request.use(config => {
 	return config;
 });
 
-// Interceptador para respostas para debug de erros
+// Interceptador para respostas para tratamento de erros
 api.interceptors.response.use(
 	response => {
 		return response;
 	},
 	error => {
-		console.error(
-			`[API ERROR] ${error.config?.method?.toUpperCase()} ${error.config?.url}: ${error.message}`,
-			error.response?.status, 
-			error.response?.data
-		);
+		// Manter apenas erro crítico para produção
+		if (process.env.NODE_ENV === 'development') {
+			console.error(
+				`[API ERROR] ${error.config?.method?.toUpperCase()} ${error.config?.url}: ${error.message}`,
+				error.response?.status, 
+				error.response?.data
+			);
+		}
 		return Promise.reject(error);
 	}
 );

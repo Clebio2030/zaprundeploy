@@ -5,6 +5,8 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.messages = exports.checkAsRead = exports.uploadFiles = exports.saveMessage = exports.remove = exports.show = exports.update = exports.store = exports.index = void 0;
 const socket_1 = require("../libs/socket");
+const util_1 = require("util");
+const child_process_1 = require("child_process");
 const CreateService_1 = __importDefault(require("../services/ChatService/CreateService"));
 const ListService_1 = __importDefault(require("../services/ChatService/ListService"));
 const ShowFromUuidService_1 = __importDefault(require("../services/ChatService/ShowFromUuidService"));
@@ -17,7 +19,6 @@ const User_1 = __importDefault(require("../models/User"));
 const ChatUser_1 = __importDefault(require("../models/ChatUser"));
 const fs_1 = __importDefault(require("fs"));
 const path_1 = __importDefault(require("path"));
-const util_1 = require("util");
 const AppError_1 = __importDefault(require("../errors/AppError"));
 const get_audio_duration_1 = require("get-audio-duration");
 const index = async (req, res) => {
@@ -164,6 +165,15 @@ const uploadFiles = async (req, res) => {
             const chatFolder = path_1.default.join("public", `company${companyId}`, "chats");
             const oldPath = file.path;
             console.log("[DEBUG] Processando arquivo:", { name: file.originalname, oldPath });
+            // Verificar se é um arquivo de áudio
+            const fileExtension = file.originalname.split('.').pop()?.toLowerCase();
+            const isAudio = file.mimetype.includes('audio') ||
+                ['mp3', 'wav', 'ogg', 'm4a', 'aac', 'mpeg', 'opus'].includes(fileExtension);
+            console.log("[DEBUG] Verificação de tipo:", {
+                isAudio,
+                mimeType: file.mimetype,
+                extension: fileExtension
+            });
             // Criar pasta se não existir
             if (!fs_1.default.existsSync(chatFolder)) {
                 console.log("[DEBUG] Criando pasta:", chatFolder);
@@ -171,31 +181,69 @@ const uploadFiles = async (req, res) => {
             }
             // Criar nome de arquivo único
             const timestamp = new Date().getTime();
-            const fileName = `${timestamp}-${file.originalname.replace(/[^a-zA-Z0-9.]/g, "_")}`;
-            const newPath = path_1.default.join(chatFolder, fileName);
-            console.log("[DEBUG] Movendo arquivo:", { oldPath, newPath });
-            try {
-                // Mover arquivo 
-                await (0, util_1.promisify)(fs_1.default.rename)(oldPath, newPath);
-                console.log("[DEBUG] Arquivo movido com sucesso");
-            }
-            catch (moveError) {
-                console.error("[ERROR] Erro ao mover arquivo:", moveError);
-                // Tentar copiar em vez de mover como fallback
+            let fileName = '';
+            let newPath = '';
+            let fileURL = '';
+            // Processamento específico para arquivos de áudio
+            if (isAudio) {
+                // Criar nome com extensão .m4a para áudios
+                const baseName = file.originalname.split('.')[0];
+                fileName = `${timestamp}-${baseName.replace(/[^a-zA-Z0-9]/g, "_")}.m4a`;
+                newPath = path_1.default.join(chatFolder, fileName);
+                // Converter o arquivo de áudio para M4A usando FFmpeg
                 try {
-                    await (0, util_1.promisify)(fs_1.default.copyFile)(oldPath, newPath);
-                    await (0, util_1.promisify)(fs_1.default.unlink)(oldPath);
-                    console.log("[DEBUG] Arquivo copiado como fallback");
+                    console.log("[DEBUG] Convertendo áudio para M4A com FFmpeg:", { oldPath, newPath });
+                    // Executar o comando FFmpeg para conversão
+                    const execPromise = (0, util_1.promisify)(child_process_1.exec);
+                    await execPromise(`ffmpeg -y -i "${oldPath}" -c:a aac -b:a 128k "${newPath}"`);
+                    console.log("[DEBUG] Conversão para M4A concluída com sucesso");
+                    // Forçar tipo MIME para compatibilidade com Safari
+                    file.mimetype = 'audio/mp4';
                 }
-                catch (copyError) {
-                    console.error("[ERROR] Erro ao copiar arquivo:", copyError);
-                    throw copyError;
+                catch (conversionError) {
+                    console.error("[ERROR] Erro ao converter áudio para M4A:", conversionError);
+                    // Se falhar a conversão, tentar apenas mover o arquivo original
+                    try {
+                        await (0, util_1.promisify)(fs_1.default.copyFile)(oldPath, newPath);
+                        console.log("[DEBUG] Arquivo copiado sem conversão como fallback");
+                    }
+                    catch (copyError) {
+                        console.error("[ERROR] Erro ao copiar arquivo original:", copyError);
+                        throw copyError;
+                    }
+                }
+                // Tentar remover o arquivo temporário original
+                try {
+                    await (0, util_1.promisify)(fs_1.default.unlink)(oldPath);
+                }
+                catch (unlinkError) {
+                    console.error("[DEBUG] Aviso: Não foi possível remover arquivo temporário:", unlinkError);
+                    // Continuar mesmo se não conseguir remover
                 }
             }
-            // Determinar o tipo MIME e processar metadados
-            const fileExtension = file.originalname.split('.').pop()?.toLowerCase();
-            const isAudio = ['mp3', 'wav', 'ogg', 'opus'].includes(fileExtension);
-            const isImage = ['jpg', 'jpeg', 'png', 'gif'].includes(fileExtension);
+            else {
+                // Para outros tipos de arquivo, manter o processamento original
+                fileName = `${timestamp}-${file.originalname.replace(/[^a-zA-Z0-9.]/g, "_")}`;
+                newPath = path_1.default.join(chatFolder, fileName);
+                try {
+                    // Mover arquivo 
+                    await (0, util_1.promisify)(fs_1.default.rename)(oldPath, newPath);
+                    console.log("[DEBUG] Arquivo movido com sucesso");
+                }
+                catch (moveError) {
+                    console.error("[ERROR] Erro ao mover arquivo:", moveError);
+                    // Tentar copiar em vez de mover como fallback
+                    try {
+                        await (0, util_1.promisify)(fs_1.default.copyFile)(oldPath, newPath);
+                        await (0, util_1.promisify)(fs_1.default.unlink)(oldPath);
+                        console.log("[DEBUG] Arquivo copiado como fallback");
+                    }
+                    catch (copyError) {
+                        console.error("[ERROR] Erro ao copiar arquivo:", copyError);
+                        throw copyError;
+                    }
+                }
+            }
             // Objeto para armazenar metadados do arquivo
             const metadata = {};
             // Extrair metadados específicos para áudio
@@ -204,6 +252,8 @@ const uploadFiles = async (req, res) => {
                     console.log("[DEBUG] Extraindo duração do áudio:", newPath);
                     const duration = await (0, get_audio_duration_1.getAudioDurationInSeconds)(newPath);
                     metadata.duration = duration;
+                    metadata.format = 'm4a';
+                    metadata.universalCompatible = true;
                     console.log("[DEBUG] Duração do áudio:", duration);
                 }
                 catch (audioError) {
@@ -212,9 +262,9 @@ const uploadFiles = async (req, res) => {
                 }
             }
             // Gerar URL pública para o arquivo
-            const fileURL = path_1.default.join("company" + companyId, "chats", fileName).replace(/\\/g, "/");
+            fileURL = path_1.default.join("company" + companyId, "chats", fileName).replace(/\\/g, "/");
             return {
-                name: file.originalname,
+                name: isAudio ? `${file.originalname.split('.')[0]}.m4a` : file.originalname,
                 size: file.size,
                 type: file.mimetype,
                 url: fileURL,

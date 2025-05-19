@@ -153,7 +153,7 @@ const isPreviewable = (fileName) => {
   if (!fileName) return false;
   
   const extension = fileName.split('.').pop().toLowerCase();
-  return ['jpg', 'jpeg', 'png', 'gif', 'pdf', 'mp4', 'mp3', 'wav', 'ogg', 'opus'].includes(extension);
+  return ['jpg', 'jpeg', 'png', 'gif', 'pdf', 'mp4', 'mp3', 'wav', 'ogg', 'opus', 'm4a'].includes(extension);
 };
 
 // Função para verificar se o arquivo é de áudio
@@ -161,10 +161,10 @@ const isAudioFile = (fileName) => {
   if (!fileName) return false;
   
   const extension = fileName.split('.').pop().toLowerCase();
-  return ['mp3', 'wav', 'ogg', 'opus', 'm4a', 'aac', 'webm'].includes(extension);
+  return ['mp3', 'wav', 'ogg', 'opus', 'm4a'].includes(extension);
 };
 
-// Função para obter a URL completa de um arquivo
+// Função para obter a URL completa do arquivo
 const getFullUrl = (url) => {
   if (!url) return "";
   
@@ -182,56 +182,8 @@ const getFullUrl = (url) => {
   // Verificar se já contém o prefixo public/ antes de adicioná-lo
   const urlWithPublic = cleanUrl.startsWith('public/') ? cleanUrl : `public/${cleanUrl}`;
   
-  // Construir a URL completa
-  let fullUrl = `${BACKEND_URL}/${urlWithPublic}`;
-  
-  // Para iOS, adicionar parâmetro de timestamp para evitar cache
-  if (/iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream) {
-    fullUrl = `${fullUrl}?t=${new Date().getTime()}`;
-  }
-  
-  console.log('[DEBUG AUDIO URL]', { original: url, final: fullUrl });
+  const fullUrl = `${BACKEND_URL}/${urlWithPublic}`;
   return fullUrl;
-};
-
-// Gerar URLs alternativas para áudios
-const generateAlternativeUrls = (url) => {
-  if (!url) return [];
-  
-  const originalUrl = getFullUrl(url);
-  const alternatives = [originalUrl];
-  
-  // Dispositivo iOS precisa de mais opções
-  const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
-  
-  if (isIOS) {
-    // Variar os caminhos public/ e arquivo/ que são comuns em uploads
-    if (url.includes('public/')) {
-      const withoutPublic = url.replace('public/', '');
-      alternatives.push(getFullUrl(withoutPublic));
-    } else {
-      alternatives.push(getFullUrl(`arquivo/${url}`));
-    }
-    
-    // Para URLs absolutas, adicionar variações
-    if (url.startsWith('http')) {
-      // Tentar versão com cache busting
-      alternatives.push(`${url}?t=${new Date().getTime()}`);
-      // Tentar versão com protocolo alternativo (http<->https)
-      if (url.startsWith('https:')) {
-        alternatives.push(url.replace('https:', 'http:'));
-      } else if (url.startsWith('http:')) {
-        alternatives.push(url.replace('http:', 'https:'));
-      }
-    }
-  }
-  
-  // Tentar caminhos comuns independente do dispositivo
-  if (!url.includes('public/') && !url.includes('arquivo/')) {
-    alternatives.push(getFullUrl(`arquivo/${url}`));
-  }
-  
-  return alternatives;
 };
 
 export default function ChatFileMessage({ files, isRight }) {
@@ -256,19 +208,17 @@ export default function ChatFileMessage({ files, isRight }) {
         
         for (const file of files) {
           const fileExt = file.name?.split('.').pop().toLowerCase();
-          const isAudio = ['mp3', 'wav', 'ogg', 'opus'].includes(fileExt);
+          const isAudio = ['mp3', 'wav', 'ogg', 'opus', 'm4a'].includes(fileExt);
           
           if (isAudio) {
             // Skip files that already have durations
             if (audioDurations[file.id] && audioDurations[file.id] > 0) {
-              console.log(`[DEBUG] Já temos duração em cache para ${file.name}: ${audioDurations[file.id]}s`);
               continue;
             }
             
             // Tentar método alternativo para obter duração do áudio
             try {
               const fullUrl = getFullUrl(file.url);
-              console.log(`[DEBUG] Tentando obter duração para ${file.name} usando método robusto`);
               
               // Criar dois métodos paralelos para obter a duração e usar o que responder primeiro com valor válido
               const durationPromise1 = getDurationFromAudioElement(fullUrl);
@@ -279,13 +229,11 @@ export default function ChatFileMessage({ files, isRight }) {
               if (file.metadata && file.metadata.duration && 
                   !isNaN(file.metadata.duration) && isFinite(file.metadata.duration) && file.metadata.duration > 0) {
                 metadataDuration = file.metadata.duration;
-                console.log(`[DEBUG] Duração obtida dos metadados: ${file.metadata.duration}s para ${file.name}`);
               }
               
               // Próxima fonte: arquivo tem propriedade duration direta
               if (!metadataDuration && file.duration && !isNaN(file.duration) && isFinite(file.duration) && file.duration > 0) {
                 metadataDuration = file.duration;
-                console.log(`[DEBUG] Duração obtida da propriedade file.duration: ${file.duration}s para ${file.name}`);
               }
               
               // Usar Promise.race para pegar o primeiro resultado válido
@@ -302,21 +250,17 @@ export default function ChatFileMessage({ files, isRight }) {
                 if (!isNaN(validDuration) && isFinite(validDuration) && validDuration > 0) {
                   durations[file.id] = validDuration;
                   hasNewDurations = true;
-                  console.log(`[DEBUG] Duração válida obtida: ${validDuration}s para ${file.name}`);
                 } else {
                   // Se ainda obtivemos um valor inválido, usar duração padrão
-                  console.warn(`[WARN] Duração obtida ainda é inválida: ${result.duration} para ${file.name}`);
                   durations[file.id] = 30;
                   hasNewDurations = true;
                 }
               } else {
                 // Se todas as estratégias falharam, usar um valor padrão realista
-                console.warn(`[WARN] Todas as estratégias falharam. Usando duração padrão (30s) para ${file.name}`);
                 durations[file.id] = 30;
                 hasNewDurations = true;
               }
             } catch (error) {
-              console.error(`[ERROR] Exceção ao processar áudio ${file.name}:`, error);
               // Usar duração padrão em caso de erro
               durations[file.id] = 30;
               hasNewDurations = true;
@@ -327,7 +271,6 @@ export default function ChatFileMessage({ files, isRight }) {
         // Atualizar o estado com todas as durações processadas
         // Só atualiza se existirem novas durações para evitar loop
         if (hasNewDurations) {
-          console.log('[DEBUG] Atualizando estado de durações:', durations);
           setAudioDurations(durations);
         }
       };
@@ -344,23 +287,19 @@ export default function ChatFileMessage({ files, isRight }) {
       
       const onLoadedMetadata = () => {
         if (!isNaN(audio.duration) && isFinite(audio.duration) && audio.duration > 0) {
-          console.log(`[DEBUG] Duração carregada do elemento Audio: ${audio.duration}s`);
           resolve({ success: true, duration: audio.duration });
         } else {
-          console.warn(`[WARN] Elemento Audio retornou duração inválida: ${audio.duration}`);
           resolve({ success: false });
         }
       };
       
       const onCanPlayThrough = () => {
         if (!isNaN(audio.duration) && isFinite(audio.duration) && audio.duration > 0) {
-          console.log(`[DEBUG] Duração obtida em canPlayThrough: ${audio.duration}s`);
           resolve({ success: true, duration: audio.duration });
         }
       };
       
       const onError = (e) => {
-        console.error(`[ERROR] Erro ao carregar áudio via elemento Audio:`, e);
         resolve({ success: false });
       };
       
@@ -408,16 +347,13 @@ export default function ChatFileMessage({ files, isRight }) {
             (buffer) => {
               const duration = buffer.duration;
               if (!isNaN(duration) && isFinite(duration) && duration > 0) {
-                console.log(`[DEBUG] AudioContext obteve duração: ${duration}s`);
                 resolve({ success: true, duration: duration });
               } else {
-                console.warn(`[WARN] AudioContext retornou duração inválida: ${duration}`);
                 resolve({ success: false });
               }
               audioContext.close();
             },
             (error) => {
-              console.error('[ERROR] Erro ao decodificar áudio via AudioContext:', error);
               resolve({ success: false });
               audioContext.close();
             }
@@ -425,7 +361,6 @@ export default function ChatFileMessage({ files, isRight }) {
         };
         
         request.onerror = (error) => {
-          console.error('[ERROR] Erro na requisição XHR para AudioContext:', error);
           resolve({ success: false });
           audioContext.close();
         };
@@ -441,7 +376,6 @@ export default function ChatFileMessage({ files, isRight }) {
         
         request.send();
       } catch (error) {
-        console.error('[ERROR] Exceção ao usar AudioContext:', error);
         resolve({ success: false, error });
       }
     });
@@ -490,7 +424,6 @@ export default function ChatFileMessage({ files, isRight }) {
           alt={selectedFile.name}
           style={{ maxWidth: '100%', maxHeight: 'calc(80vh - 64px)' }}
           onError={(e) => {
-            console.error('Erro ao carregar imagem:', fileUrl);
             e.target.onerror = null;
             e.target.src = `${process.env.PUBLIC_URL}/nopicture.png`;
           }}
@@ -515,10 +448,7 @@ export default function ChatFileMessage({ files, isRight }) {
           style={{ maxWidth: '100%', maxHeight: 'calc(80vh - 64px)' }}
         />
       );
-    } else if (isAudioFile(selectedFile.name)) {
-      // Alternativas de URL para áudio
-      const audioUrls = generateAlternativeUrls(selectedFile.url);
-      
+    } else if (['mp3', 'wav', 'ogg', 'opus', 'm4a'].includes(fileExt)) {
       return (
         <div style={{ width: '100%', padding: '20px', textAlign: 'center' }}>
           <AudiotrackIcon style={{ fontSize: 60, color: '#3f51b5', marginBottom: 20 }} />
@@ -531,25 +461,13 @@ export default function ChatFileMessage({ files, isRight }) {
             controls 
             style={{ width: '100%' }} 
             onError={(e) => {
-              console.error('Erro ao carregar áudio com URL principal:', fileUrl);
-              
-              // Tentar URLs alternativas
-              if (audioUrls.length > 1) {
-                const nextUrl = audioUrls[1]; // Pegar a segunda URL (a primeira já falhou)
-                console.log('Tentando URL alternativa para o áudio:', nextUrl);
-                e.target.src = nextUrl;
-                e.target.load();
+              if (fileUrl.includes('/public/')) {
+                const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || window.location.origin;
+                const originalUrl = selectedFile.url;
+                const alternativeUrl = `${BACKEND_URL}/${originalUrl.startsWith('/') ? originalUrl.substring(1) : originalUrl}`;
                 
-                // Adicionar handler para tentar a próxima URL se esta também falhar
-                e.target.onerror = () => {
-                  if (audioUrls.length > 2) {
-                    const finalUrl = audioUrls[2];
-                    console.log('Tentando URL final para o áudio:', finalUrl);
-                    e.target.src = finalUrl;
-                    e.target.load();
-                    e.target.onerror = null; // Parar de tentar após a terceira tentativa
-                  }
-                };
+                e.target.src = alternativeUrl;
+                e.target.load();
               }
             }}
           />
@@ -571,14 +489,11 @@ export default function ChatFileMessage({ files, isRight }) {
   const renderFileItems = () => {
     return files.map((file, index) => {
       const fileExt = file.name?.split('.').pop().toLowerCase();
-      const isAudio = isAudioFile(file.name);
+      const isAudio = ['mp3', 'wav', 'ogg', 'opus', 'm4a'].includes(fileExt);
       
       if (isAudio) {
         // Obter a duração do estado ou usar valor padrão
         let audioDuration = audioDurations[file.id] || 0;
-        
-        // Logs para depuração
-        console.log(`[DEBUG] Renderizando áudio ${file.name} com duração ${audioDuration}s`);
         
         return (
           <Box 
@@ -595,58 +510,58 @@ export default function ChatFileMessage({ files, isRight }) {
       }
       
       return (
-      <Box key={index} className={classes.fileItem}>
-        {(['jpg', 'jpeg', 'png', 'gif'].includes(fileExt)) ? (
-          <img 
-            src={getFullUrl(file.url)} 
-            alt={file.name}
-            className={classes.thumbnailImage}
-            onError={(e) => {
-              e.target.onerror = null;
-              e.target.src = `${process.env.PUBLIC_URL}/nopicture.png`;
-            }}
-          />
-          ) : (
-            getFileIcon(file.name)
-          )}
-      
-      <Box className={classes.fileDetails}>
-        <Typography className={classes.fileName}>
-          {file.name}
-        </Typography>
-          <Typography className={classes.fileSize}>
-            {formatFileSize(file.size)}
-          </Typography>
-      </Box>
-      
-      <Box className={classes.fileActions}>
-          {isPreviewable(file.name) && (
-            <Tooltip title="Visualizar">
-              <IconButton
-                className={classes.actionButton}
-                onClick={() => handlePreview(file)}
-              >
-                <VisibilityIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          )}
-        
-          <Tooltip title="Baixar">
-            <IconButton
-              className={classes.actionButton}
-            component={Link}
-              href={getFullUrl(file.url)}
-            download={file.name}
-              target="_blank"
-            >
-              <GetAppIcon fontSize="small" />
-            </IconButton>
-          </Tooltip>
-      </Box>
-    </Box>
-    );
-  });
-};
+        <Box key={index} className={classes.fileItem}>
+          {(['jpg', 'jpeg', 'png', 'gif'].includes(fileExt)) ? (
+            <img 
+              src={getFullUrl(file.url)} 
+              alt={file.name}
+              className={classes.thumbnailImage}
+              onError={(e) => {
+                e.target.onerror = null;
+                e.target.src = `${process.env.PUBLIC_URL}/nopicture.png`;
+              }}
+            />
+            ) : (
+              getFileIcon(file.name)
+            )}
+          
+          <Box className={classes.fileDetails}>
+            <Typography className={classes.fileName}>
+              {file.name}
+            </Typography>
+              <Typography className={classes.fileSize}>
+                {formatFileSize(file.size)}
+              </Typography>
+          </Box>
+          
+          <Box className={classes.fileActions}>
+              {isPreviewable(file.name) && (
+                <Tooltip title="Visualizar">
+                  <IconButton
+                    className={classes.actionButton}
+                    onClick={() => handlePreview(file)}
+                  >
+                    <VisibilityIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
+              )}
+            
+              <Tooltip title="Baixar">
+                <IconButton
+                  className={classes.actionButton}
+                component={Link}
+                  href={getFullUrl(file.url)}
+                download={file.name}
+                  target="_blank"
+                >
+                  <GetAppIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+          </Box>
+        </Box>
+      );
+    });
+  };
 
   return (
     <Box className={classes.fileContainer}>

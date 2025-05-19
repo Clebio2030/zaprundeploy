@@ -37,8 +37,11 @@ const upload = (0, multer_1.default)(upload_1.default);
 const uploadPrivate = (0, multer_1.default)(privateFiles_1.default);
 const settingRoutes = (0, express_1.Router)();
 settingRoutes.get("/settings", isAuth_1.default, SettingController.index);
+// Rotas para gerenciar a mídia de boas-vindas (devem vir antes das rotas paramétricas)
+settingRoutes.get("/settings/welcome-media", isAuth_1.default, SettingController.getWelcomeMedia);
+settingRoutes.put("/settings/welcome-media", isAuth_1.default, SettingController.updateWelcomeMedia);
+// Rotas paramétricas
 settingRoutes.get("/settings/:settingKey", isAuth_1.default, SettingController.showOne);
-// change setting key to key in future
 settingRoutes.put("/settings/:settingKey", isAuth_1.default, SettingController.update);
 settingRoutes.get("/setting/:settingKey", isAuth_1.default, SettingController.getSetting);
 settingRoutes.put("/setting/:settingKey", isAuth_1.default, SettingController.updateOne);

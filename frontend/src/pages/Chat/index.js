@@ -560,7 +560,6 @@ function Chat(props) {
   const markChatAsRead = async (chatId) => {
     try {
       await api.post(`/chats/${chatId}/read`, { userId: user.id });
-      console.log(`Chat ${chatId} marcado como lido`);
     } catch (err) {
       console.error('Erro ao marcar chat como lido:', err);
     }

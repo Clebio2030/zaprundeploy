@@ -3,7 +3,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.storePrivateFile = exports.storeLogo = exports.publicShow = exports.updateOne = exports.getSetting = exports.update = exports.showOne = exports.index = void 0;
+exports.updateWelcomeMedia = exports.getWelcomeMedia = exports.storePrivateFile = exports.storeLogo = exports.publicShow = exports.updateOne = exports.getSetting = exports.update = exports.showOne = exports.index = void 0;
 const socket_1 = require("../libs/socket");
 const AppError_1 = __importDefault(require("../errors/AppError"));
 const UpdateSettingService_1 = __importDefault(require("../services/SettingServices/UpdateSettingService"));
@@ -12,6 +12,8 @@ const ListSettingsServiceOne_1 = __importDefault(require("../services/SettingSer
 const GetSettingService_1 = __importDefault(require("../services/SettingServices/GetSettingService"));
 const UpdateOneSettingService_1 = __importDefault(require("../services/SettingServices/UpdateOneSettingService"));
 const GetPublicSettingService_1 = __importDefault(require("../services/SettingServices/GetPublicSettingService"));
+const GetWelcomeMediaService_1 = __importDefault(require("../services/SettingServices/GetWelcomeMediaService"));
+const UpdateWelcomeMediaService_1 = __importDefault(require("../services/SettingServices/UpdateWelcomeMediaService"));
 const index = async (req, res) => {
     const { companyId } = req.user;
     // if (req.user.profile !== "admin") {
@@ -108,3 +110,37 @@ const storePrivateFile = async (req, res) => {
     return res.status(200).json(setting.value);
 };
 exports.storePrivateFile = storePrivateFile;
+const getWelcomeMedia = async (req, res) => {
+    const { companyId } = req.user;
+    const mediaConfig = await (0, GetWelcomeMediaService_1.default)({ companyId });
+    return res.status(200).json(mediaConfig);
+};
+exports.getWelcomeMedia = getWelcomeMedia;
+const updateWelcomeMedia = async (req, res) => {
+    const { companyId } = req.user;
+    const mediaData = req.body;
+    if (req.user.profile !== "admin") {
+        throw new AppError_1.default("ERR_NO_PERMISSION", 403);
+    }
+    try {
+        const mediaConfig = await (0, UpdateWelcomeMediaService_1.default)({
+            mediaData,
+            companyId
+        });
+        const io = (0, socket_1.getIO)();
+        io.of(String(companyId))
+            .emit(`company-${companyId}-settings`, {
+            action: "update",
+            setting: {
+                key: "welcomeMediaConfig",
+                value: JSON.stringify(mediaConfig)
+            }
+        });
+        return res.status(200).json(mediaConfig);
+    }
+    catch (error) {
+        console.error("Erro ao atualizar configurações de mídia:", error);
+        throw new AppError_1.default("Erro ao atualizar configurações de mídia", 500);
+    }
+};
+exports.updateWelcomeMedia = updateWelcomeMedia;

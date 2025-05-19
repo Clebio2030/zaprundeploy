@@ -89,16 +89,10 @@ const useStyles = makeStyles((theme) => ({
     minWidth: 20,
     marginLeft: theme.spacing(1),
   },
-  listActions: {
-    position: "absolute",
-    right: 8,
-    top: 8,
-    display: "none",
-  },
-  listItemWithActions: {
-    "&:hover $listActions": {
-      display: "flex",
-  },
+  actionButtons: {
+    display: "flex",
+    justifyContent: "flex-end",
+    padding: "0 16px 8px 16px",
   },
   noChats: {
     display: "flex",
@@ -126,7 +120,15 @@ const useStyles = makeStyles((theme) => ({
   avatar: {
     backgroundColor: theme.palette.type === 'dark' ? "#FF8C00" : "#FF8C00",
     color: "#fff",
-  }
+  },
+  actionsContainer: {
+    display: "flex",
+    alignItems: "center",
+    top: "auto",
+    bottom: "8px",
+    transform: "none",
+    right: "16px"
+  },
 }));
 
 export default function ChatList({
@@ -212,7 +214,7 @@ export default function ChatList({
                   <React.Fragment key={key}>
                 <ListItem
                   onClick={() => goToMessages(chat)}
-                      className={`${chat.uuid === id ? classes.listItemActive : classes.listItem} ${classes.listItemWithActions}`}
+                      className={chat.uuid === id ? classes.listItemActive : classes.listItem}
                   button
                 >
                       <ListItemAvatar>
@@ -241,46 +243,48 @@ export default function ChatList({
                         }
                       />
                       
-                      {unreads > 0 && (
-                        <Badge
-                          badgeContent={unreads}
-                          classes={{ badge: classes.unreadBadge }}
-                  />
-                      )}
-                      
-                  {chat.ownerId === user.id && (
-                        <div className={classes.listActions}>
-                      <IconButton
-                            className={classes.actionButton}
-                        onClick={(e) => {
-                              e.stopPropagation();
-                          handleSelectChat(chat);
-                            handleEditChat(chat);
-                        }}
-                        edge="end"
-                        aria-label="edit"
-                        size="small"
-                      >
-                            <EditIcon fontSize="small" />
-                      </IconButton>
-                      <IconButton
-                            className={classes.actionButton}
-                        onClick={(e) => {
-                              e.stopPropagation();
-                          setSelectedChat(chat);
-                          setConfirmModalOpen(true);
-                        }}
-                        edge="end"
-                        aria-label="delete"
-                        size="small"
-                      >
-                            <DeleteIcon fontSize="small" />
-                      </IconButton>
-                        </div>
-                  )}
+                      <ListItemSecondaryAction className={classes.actionsContainer}>
+                        {unreads > 0 && (
+                          <Badge
+                            badgeContent={unreads}
+                            classes={{ badge: classes.unreadBadge }}
+                          />
+                        )}
+                        
+                        {chat.ownerId === user.id && (
+                          <>
+                            <IconButton
+                              className={classes.actionButton}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleSelectChat(chat);
+                                handleEditChat(chat);
+                              }}
+                              edge="end"
+                              aria-label="edit"
+                              size="small"
+                            >
+                              <EditIcon fontSize="small" />
+                            </IconButton>
+                            <IconButton
+                              className={classes.actionButton}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setSelectedChat(chat);
+                                setConfirmModalOpen(true);
+                              }}
+                              edge="end"
+                              aria-label="delete"
+                              size="small"
+                            >
+                              <DeleteIcon fontSize="small" />
+                            </IconButton>
+                          </>
+                        )}
+                      </ListItemSecondaryAction>
                 </ListItem>
-                    <Divider component="li" variant="inset" />
-                  </React.Fragment>
+                <Divider component="li" variant="inset" />
+              </React.Fragment>
                 );
               })}
           </List>
